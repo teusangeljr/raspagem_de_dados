@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: raspagem
+    runtime: docker
+    plan: free
+    region: ohio
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PYTHONUNBUFFERED
+        value: "true"

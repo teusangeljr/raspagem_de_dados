@@ -1,6 +1,7 @@
 # Instale as dependências via terminal com o comando abaixo antes de rodar:
 # pip install selenium pandas openpyxl
 
+import os
 import time
 import re
 import urllib.parse
@@ -34,7 +35,11 @@ def setup_driver(headless=False):
     options.add_experimental_option('useAutomationExtension', False)
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
-    # O Selenium 4.6+ tem o Selenium Manager build-in que fará o download do Chrome for Testing caso você não tenha
+    # Caminhos para Docker se variáveis estiverem setadas no Dockerfile
+    chrome_bin = os.environ.get("CHROME_BIN")
+    if chrome_bin:
+        options.binary_location = chrome_bin
+        
     driver = webdriver.Chrome(options=options)
     
     # Executar script para esconder o "webdriver = true" nas verificações js
