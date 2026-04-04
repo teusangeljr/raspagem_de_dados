@@ -10,6 +10,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
@@ -37,10 +38,16 @@ def setup_driver(headless=False):
     
     # Caminhos para Docker se variáveis estiverem setadas no Dockerfile
     chrome_bin = os.environ.get("CHROME_BIN")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+    
     if chrome_bin:
         options.binary_location = chrome_bin
         
-    driver = webdriver.Chrome(options=options)
+    if chromedriver_path and os.path.exists(chromedriver_path):
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
+    else:
+        driver = webdriver.Chrome(options=options)
     
     # Executar script para esconder o "webdriver = true" nas verificações js
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -100,7 +107,7 @@ def scrape_google_maps(keyword, headless=False, log_callback=None, max_results=N
                 break
                 
             driver.execute_script("arguments[0].scrollTo(0, arguments[0].scrollHeight)", feed_container)
-            time.sleep(2.5) 
+            time.sleep(1.8) # Reduzido de 2.5 para 1.8 para agilizar
             
             new_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
             
@@ -150,7 +157,13 @@ def scrape_google_maps(keyword, headless=False, log_callback=None, max_results=N
                 
             _log(f"[{keyword}] Lendo estabelecimento {progress_str}...")
             driver.get(item_url)
-            time.sleep(2.5) 
+            
+            # Aguarda o título do lugar carregar em vez de sleep fixo longo
+            try:
+                wait.until(EC.presence_of_element_located((By.XPATH, "//h1")))
+                time.sleep(0.8) # Pequena pausa para garantir carregamento de outros dados (telefone/site)
+            except TimeoutException:
+                _log(f"   [!] Aviso: Título não carregou a tempo para {item_url}")
             
             nome = "Não encontrado"
             telefone = "Não encontrado"

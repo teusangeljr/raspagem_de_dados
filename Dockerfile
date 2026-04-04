@@ -27,5 +27,5 @@ ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 EXPOSE 10000
 
 # Start the Flask app using Gunicorn
-# Using 4 workers and binding to port 10000 (Render's default)
-CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--workers", "1", "--threads", "8", "--timeout", "0", "app:app"]
+# Using 1 worker and 8 threads (efficient for I/O bound scraping)
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --threads 8 --timeout 0 app:app"]

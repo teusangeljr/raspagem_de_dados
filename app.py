@@ -45,6 +45,17 @@ def scraper_thread(keyword, headless, max_results, min_rating, site_filter, q, c
         q.put(f"ERRO: {str(e)}")
         q.put("DONE|ERROR")
 
+@app.route('/ping')
+def ping():
+    # Segurança: Verifica se o token enviado no cabeçalho ou query bate com o esperado
+    secret = os.environ.get("PING_SECRET")
+    token = request.headers.get("X-Ping-Token") or request.args.get("token")
+    
+    if secret and token != secret:
+        return "Unauthorized", 401
+        
+    return "pong", 200
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -117,6 +128,6 @@ def download():
     return "Nenhum arquivo para download", 404
 
 if __name__ == '__main__':
-    print("Iniciando o painel de prospecção do Google Maps!")
-    print("Acesse no navegador: http://127.0.0.1:5000")
-    app.run(debug=True, threaded=True, port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    print(f"Iniciando o painel de prospecção do Google Maps na porta {port}!")
+    app.run(host='0.0.0.0', port=port, debug=True, threaded=True)

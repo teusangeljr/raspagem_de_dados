@@ -9,3 +9,5 @@ services:
         value: 10000
       - key: PYTHONUNBUFFERED
         value: "true"
+      - key: PING_SECRET
+        value: "angel"
