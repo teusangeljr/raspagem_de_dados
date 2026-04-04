@@ -34,8 +34,20 @@ def setup_driver(headless=False):
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--disable-extensions")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--disable-notifications")
     options.add_argument("--start-maximized")
     options.add_argument("--lang=pt-BR")
+
+    # Otimização de Memória e CPU (Render-friendly)
+    options.add_argument("--disable-features=Translate,OptimizationHints,OptimizationGuide,OptimizationGuideFetching,OptimizationTargetPrediction")
+    options.add_argument("--disable-browser-side-navigation")
+    options.add_argument("--dns-prefetch-disable")
+
+    # DESATIVA CARREGAMENTO DE IMAGENS PARA GANHAR PERFORMANCE
+    # 2 = Block images
+    prefs = {"profile.managed_default_content_settings.images": 2}
+    options.add_experimental_option("prefs", prefs)
 
     # Rotaciona user-agents para reduzir detecção de padrão
     user_agents = [
@@ -95,7 +107,7 @@ def _find_safe(driver, by, selector):
         return None
 
 
-def _human_pause(base=1.8, variance=1.2):
+def _human_pause(base=1.0, variance=0.8):
     """Pausa aleatória que imita comportamento humano."""
     time.sleep(base + random.uniform(0, variance))
 
@@ -263,10 +275,12 @@ def scrape_google_maps(
                 pass
 
             # Verifica se já coletamos itens suficientes para parar a rolagem cedo
-            if max_results and site_filter == 'todos' and min_rating is None:
+            # (Render Speedup: Se já temos itens em cache suficientes para cumprir o max_results * 1.5, paramos)
+            if max_results:
                 items_temp = feed_container.find_elements(By.CSS_SELECTOR, "a[href*='/maps/place/']")
-                if len(items_temp) >= max_results * 2:
-                    _log(f"[{keyword}] 🎯 Itens suficientes em cache. Parando rolagem cedo.")
+                multiplier = 1.2 if (site_filter == 'todos' and min_rating is None) else 4.0
+                if len(items_temp) >= max_results * multiplier:
+                    _log(f"[{keyword}] 🎯 Link caches suficientes ({len(items_temp)}). Parando rolagem cedo.")
                     break
 
             if new_height == last_height:
