@@ -17,44 +17,64 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 def setup_driver(headless=False):
     """
-    Configura o Selenium WebDriver sem webdriver_manager (usará o Selenium Manager nativo).
-    Inclui opções stealth para burlar bloqueios do Google (Evasão).
+    Configura o Selenium WebDriver com opções otimizadas para Docker/Render.
+    Inclui opções de estabilidade para ambientes com pouca memória.
     """
     options = Options()
     if headless:
         options.add_argument("--headless=new")
     
-    # Boas práticas para estabilidade (Stealth / Anti-Bot)
-    options.add_argument("--disable-gpu")
+    # Flags essenciais para Docker/containers com pouca memória
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-setuid-sandbox")
+    options.add_argument("--single-process")           # Crítico para Render free tier
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-plugins")
+    options.add_argument("--disable-images")           # Não carrega imagens → muito mais rápido
+    options.add_argument("--window-size=1280,800")
+    options.add_argument("--memory-pressure-off")
+    options.add_argument("--max_old_space_size=256")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--mute-audio")
     
-    # Técnicas avançadas de evasão
+    # Técnicas de evasão (mantidas)
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
-    # Caminhos para Docker se variáveis estiverem setadas no Dockerfile
+    # Caminhos para Docker
     chrome_bin = os.environ.get("CHROME_BIN")
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
     
     if chrome_bin:
         options.binary_location = chrome_bin
-        
-    if chromedriver_path and os.path.exists(chromedriver_path):
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
-    else:
-        driver = webdriver.Chrome(options=options)
     
-    # Executar script para esconder o "webdriver = true" nas verificações js
-    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    })
-    
-    return driver
+    # Retry: tenta até 2 vezes inicializar o driver
+    for attempt in range(2):
+        try:
+            if chromedriver_path and os.path.exists(chromedriver_path):
+                service = Service(executable_path=chromedriver_path)
+                driver = webdriver.Chrome(service=service, options=options)
+            else:
+                driver = webdriver.Chrome(options=options)
+            
+            # Esconde o "webdriver = true"
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            })
+            driver.set_page_load_timeout(30)
+            driver.set_script_timeout(15)
+            return driver
+        except Exception as e:
+            if attempt == 0:
+                time.sleep(2)  # Aguarda e tenta de novo
+            else:
+                raise e
+
 
 def inferir_whatsapp(telefone):
     """ Tenta detectar se o número é de celular brasileiro e gera link direto de WhatsApp. """
@@ -100,45 +120,75 @@ def scrape_google_maps(keyword, headless=False, log_callback=None, max_results=N
         feed_container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='feed']")))
         _log(f"[{keyword}] Lista de resultados encontrada. Iniciando rolagem (bypass bloqueios)...")
         
-        last_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
-        while True:
-            if cancel_event and cancel_event.is_set():
-                _log(f"[{keyword}] Operação de rolagem interrompida pelo usuário.")
-                break
-                
-            driver.execute_script("arguments[0].scrollTo(0, arguments[0].scrollHeight)", feed_container)
-            time.sleep(1.8) # Reduzido de 2.5 para 1.8 para agilizar
-            
-            new_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
-            
-            try:
-                end_of_list = driver.find_element(By.XPATH, "//*[contains(text(), 'Você chegou ao fim da lista') or contains(text(), \"You've reached the end of the list\")]")
-                if end_of_list.is_displayed():
-                    _log(f"[{keyword}] Fim da lista detectado com sucesso.")
+        try:
+            last_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
+        except Exception:
+            last_height = 0
+        
+        # Otimização: se só quer N resultados sem filtros, para bem cedo no scroll
+        # Com filtros, precisa rolar mais, mas também limita
+        can_skip_scroll = (
+            max_results == 1 and 
+            site_filter == 'todos' and 
+            min_rating is None
+        )
+        
+        # Multiplier: com filtros, precisamos de mais candidatos para compensar os rejeitados
+        scroll_buffer = 5 if not (site_filter != 'todos' or min_rating) else (max_results or 10) * 4
+        
+        if can_skip_scroll:
+            _log(f"[{keyword}] Qtd. máxima=1 → Pulando rolagem, pegando primeiro resultado direto.")
+        else:
+            while True:
+                if cancel_event and cancel_event.is_set():
+                    _log(f"[{keyword}] Operação de rolagem interrompida pelo usuário.")
                     break
-            except NoSuchElementException:
-                pass
                 
-            # Otimização: se já achou o triplo de URLs do que queríamos em scroll e não tem filtro, podemos parar
-            if max_results and site_filter == 'todos' and min_rating is None:
-                items_temp = feed_container.find_elements(By.CSS_SELECTOR, "a[href*='/maps/place/']")
-                if len(items_temp) >= max_results + 5:
-                    _log(f"[{keyword}] Meta superficial atingida ({len(items_temp)}+ resultados). Parando rolagem cedo.")
-                    break
-
-            if new_height == last_height:
                 try:
-                    feed_container.send_keys(Keys.PAGE_DOWN)
-                    time.sleep(2)
+                    driver.execute_script("arguments[0].scrollTo(0, arguments[0].scrollHeight)", feed_container)
                 except Exception:
-                    pass
-                
-                new_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
-                if new_height == last_height:
-                    _log(f"[{keyword}] Sem mais resultados para carregar na rolagem.")
+                    _log(f"[{keyword}] Erro de scroll, encerrando rolagem.")
                     break
                     
-            last_height = new_height
+                time.sleep(1.5)
+                
+                try:
+                    new_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
+                except Exception:
+                    break
+                
+                try:
+                    end_of_list = driver.find_element(By.XPATH, "//*[contains(text(), 'Você chegou ao fim da lista') or contains(text(), \"You've reached the end of the list\")]")
+                    if end_of_list.is_displayed():
+                        _log(f"[{keyword}] Fim da lista detectado com sucesso.")
+                        break
+                except NoSuchElementException:
+                    pass
+                    
+                # Parar cedo com base na quantidade de itens visíveis
+                if max_results:
+                    items_temp = feed_container.find_elements(By.CSS_SELECTOR, "a[href*='/maps/place/']")
+                    if len(items_temp) >= max_results + scroll_buffer:
+                        _log(f"[{keyword}] Itens suficientes ({len(items_temp)}) para atingir meta. Parando rolagem.")
+                        break
+
+                if new_height == last_height:
+                    try:
+                        feed_container.send_keys(Keys.PAGE_DOWN)
+                        time.sleep(1.5)
+                    except Exception:
+                        pass
+                    
+                    try:
+                        new_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
+                    except Exception:
+                        break
+                        
+                    if new_height == last_height:
+                        _log(f"[{keyword}] Sem mais resultados para carregar na rolagem.")
+                        break
+                        
+                last_height = new_height
             
         _log(f"[{keyword}] Rolagem concluída. Extraindo estabelecimentos agora...")
         
