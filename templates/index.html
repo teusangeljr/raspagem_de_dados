@@ -661,13 +661,26 @@
         </div>
       </div>
 
-      <div class="field">
-        <label>Filtro de site</label>
-        <select id="site-filter">
-          <option value="todos">Todos os resultados</option>
-          <option value="com_site">Apenas com site</option>
-          <option value="sem_site">Apenas sem site (potenciais clientes de criação)</option>
-        </select>
+      <div class="row-2">
+        <div class="field">
+          <label>Filtro de site</label>
+          <select id="site-filter">
+            <option value="todos">Todos os resultados</option>
+            <option value="com_site">Apenas com site</option>
+            <option value="sem_site">Apenas sem site (potenciais clientes de criação)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>País da Busca</label>
+          <select id="country">
+            <option value="">Nenhum (Global / Local IP)</option>
+            <option value="Brasil">Brasil</option>
+            <option value="Portugal">Portugal</option>
+            <option value="Angola">Angola</option>
+            <option value="Moçambique">Moçambique</option>
+            <option value="Estados Unidos">Estados Unidos</option>
+          </select>
+        </div>
       </div>
 
       <div class="toggle-row">
@@ -924,6 +937,7 @@
     const maxResults = document.getElementById('max-results').value || null;
     const minRating  = document.getElementById('min-rating').value  || null;
     const siteFilter = document.getElementById('site-filter').value;
+    const country    = document.getElementById('country').value;
 
     setRunning(true);
     startTimer();
@@ -936,13 +950,14 @@
     if (maxResults)  log(`📌 Limite: ${maxResults} leads por keyword`);
     if (minRating)   log(`⭐ Nota mínima: ${minRating}`);
     if (siteFilter !== 'todos') log(`🔎 Filtro de site: ${siteFilter}`);
+    if (country) log(`🌎 País: ${country}`);
 
     // Inicia scraping
     try {
       await fetch('/api/start_scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keyword, headless, max_results: maxResults, min_rating: minRating, site_filter: siteFilter }),
+        body: JSON.stringify({ keyword, headless, max_results: maxResults, min_rating: minRating, site_filter: siteFilter, country: country }),
       });
     } catch(e) {
       log('❌ Erro ao conectar com o servidor.', 'c-red');

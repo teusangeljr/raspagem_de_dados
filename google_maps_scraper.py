@@ -29,9 +29,6 @@ def setup_driver(headless=False):
     if headless:
         options.add_argument("--headless=new")
 
-    # Configura o timeout da conexão remota entre o script e o Chrome para 300s
-    RemoteConnection.set_timeout(300)
-
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")

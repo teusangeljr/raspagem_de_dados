@@ -35,7 +35,7 @@ last_leads      = []          # últimos leads coletados (para a página /leads)
 #  Thread de scraping
 # ─────────────────────────────────────────────
 
-def scraper_thread(keywords, headless, max_results, min_rating, site_filter, q, cancel_signal):
+def scraper_thread(keywords, headless, max_results, min_rating, site_filter, country, q, cancel_signal):
     """
     Processa uma ou mais palavras-chave em sequência.
     Emite mensagens de progresso na fila `q`.
@@ -64,8 +64,10 @@ def scraper_thread(keywords, headless, max_results, min_rating, site_filter, q, 
         q.put(f"🔑 [{kw_index}/{total_keywords}] Iniciando busca por: \"{keyword}\"")
 
         try:
+            search_keyword = f"{keyword} {country}".strip() if country else keyword
+
             data = scrape_google_maps(
-                keyword=keyword,
+                keyword=search_keyword,
                 headless=headless,
                 log_callback=log_pusher,
                 max_results=max_results,
@@ -220,6 +222,7 @@ def start_scrape():
     max_results = data.get('max_results', None)
     min_rating  = data.get('min_rating',  None)
     site_filter = data.get('site_filter', 'todos')
+    country     = data.get('country', '')
 
     if max_results is not None:
         try: max_results = int(max_results)
@@ -235,7 +238,7 @@ def start_scrape():
     cancel_event.clear()
     thread = threading.Thread(
         target=scraper_thread,
-        args=(keywords, headless, max_results, min_rating, site_filter, status_queue, cancel_event),
+        args=(keywords, headless, max_results, min_rating, site_filter, country, status_queue, cancel_event),
         daemon=True,
     )
     thread.start()
