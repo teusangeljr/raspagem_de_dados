@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MapLeads — Seus Leads</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Tokens ──────────────────────────────────────── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg:           #080b10;
+      --surface:      #0e1420;
+      --surface-2:    #141b2d;
+      --surface-3:    #1a2236;
+      --border:       rgba(255,255,255,0.07);
+      --border-2:     rgba(255,255,255,0.12);
+      --primary:      #00e5ff;
+      --primary-dim:  rgba(0,229,255,0.12);
+      --green:        #00e676;
+      --green-dim:    rgba(0,230,118,0.1);
+      --green-wa:     #25d366;
+      --red:          #ff5252;
+      --yellow:       #ffd740;
+      --purple:       #a78bfa;
+      --text:         #e2e8f0;
+      --muted:        #4a5568;
+      --muted-2:      #718096;
+      --radius:       14px;
+      --mono:         'Space Mono', monospace;
+      --sans:         'DM Sans', sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+    }
+
+    /* ── Grid lines bg ───────────────────────────────────────── */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,229,255,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,229,255,0.025) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Top bar ─────────────────────────────────────────────── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(8,11,16,0.88);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 32px;
+      gap: 20px;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .back-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted-2);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-family: var(--mono);
+      padding: 7px 14px;
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      transition: all .2s;
+    }
+
+    .back-btn:hover {
+      color: var(--primary);
+      border-color: var(--primary);
+      background: var(--primary-dim);
+    }
+
+    .topbar-title {
+      font-family: var(--mono);
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .topbar-count {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--muted-2);
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* ── Search & filter bar ─────────────────────────────────── */
+    .filter-bar {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 20px 32px;
+      flex-wrap: wrap;
+    }
+
+    .search-wrap {
+      position: relative;
+      flex: 1;
+      min-width: 240px;
+    }
+
+    .search-wrap svg {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted-2);
+      pointer-events: none;
+    }
+
+    .search-input {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: 10px;
+      padding: 11px 16px 11px 42px;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    .search-input::placeholder { color: var(--muted); }
+    .search-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(0,229,255,0.08);
+    }
+
+    .filter-select {
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: 10px;
+      padding: 11px 16px;
+      color: var(--muted-2);
+      font-family: var(--sans);
+      font-size: 0.85rem;
+      outline: none;
+      cursor: pointer;
+      transition: border-color .2s;
+    }
+
+    .filter-select:focus { border-color: var(--primary); }
+    .filter-select option { background: var(--surface-2); }
+
+    .leads-count-chip {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      padding: 6px 12px;
+      background: var(--primary-dim);
+      border: 1px solid rgba(0,229,255,0.25);
+      border-radius: 20px;
+      color: var(--primary);
+      white-space: nowrap;
+    }
+
+    /* ── Message template modal ──────────────────────────────── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(6px);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: 18px;
+      padding: 32px;
+      width: min(580px, 94vw);
+      animation: modalIn .3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.9) translateY(20px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .modal h2 {
+      font-family: var(--mono);
+      font-size: 1rem;
+      color: var(--primary);
+      margin-bottom: 6px;
+    }
+
+    .modal p.modal-sub {
+      color: var(--muted-2);
+      font-size: 0.82rem;
+      margin-bottom: 20px;
+    }
+
+    .modal label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted-2);
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      font-family: var(--mono);
+      margin-bottom: 8px;
+    }
+
+    .modal textarea {
+      width: 100%;
+      min-height: 140px;
+      background: var(--bg);
+      border: 1px solid var(--border-2);
+      border-radius: 10px;
+      padding: 14px 16px;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 0.9rem;
+      line-height: 1.6;
+      outline: none;
+      resize: vertical;
+      transition: border-color .2s;
+    }
+
+    .modal textarea:focus { border-color: var(--primary); }
+
+    .modal-hint {
+      font-size: 0.77rem;
+      color: var(--muted);
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+
+    .modal-hint code {
+      background: var(--surface-2);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--primary);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    /* ── Copy presets ─────────────────────────────────────────── */
+    .presets-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .preset-btn {
+      font-size: 0.75rem;
+      padding: 5px 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
+      border-radius: 6px;
+      color: var(--muted-2);
+      cursor: pointer;
+      font-family: var(--sans);
+      transition: all .15s;
+    }
+
+    .preset-btn:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 10px 18px;
+      border: none;
+      border-radius: 9px;
+      font-family: var(--sans);
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: var(--bg);
+    }
+
+    .btn-primary:hover { background: #40efff; box-shadow: 0 0 18px rgba(0,229,255,0.3); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted-2);
+      border: 1px solid var(--border-2);
+    }
+
+    .btn-ghost:hover { border-color: var(--muted-2); color: var(--text); }
+
+    .btn-wa {
+      background: var(--green-wa);
+      color: #fff;
+      font-size: 0.82rem;
+      padding: 9px 15px;
+    }
+
+    .btn-wa:hover {
+      background: #22c560;
+      box-shadow: 0 0 16px rgba(37,211,102,0.4);
+      transform: translateY(-1px);
+    }
+
+    .btn-wa-open {
+      background: transparent;
+      color: var(--green-wa);
+      border: 1px solid var(--green-wa);
+      font-size: 0.82rem;
+      padding: 9px 15px;
+    }
+
+    .btn-wa-open:hover {
+      background: rgba(37,211,102,0.08);
+    }
+
+    .btn-instagram {
+      background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2397 75%, #bc1888 100%);
+      color: #fff;
+      font-size: 0.82rem;
+      padding: 9px 15px;
+    }
+
+    .btn-instagram:hover {
+      box-shadow: 0 0 16px rgba(220, 39, 67, 0.4);
+      transform: translateY(-1px);
+    }
+
+    .btn-ai {
+      background: var(--surface-3);
+      color: var(--primary);
+      border: 1px solid var(--primary);
+      font-size: 0.82rem;
+      padding: 9px 15px;
+    }
+
+    .btn-ai:hover {
+      background: var(--primary-dim);
+      box-shadow: 0 0 12px rgba(0,229,255,0.2);
+    }
+
+    .btn-copy {
+      background: var(--surface-2);
+      color: var(--muted-2);
+      border: 1px solid var(--border);
+      font-size: 0.78rem;
+      padding: 7px 12px;
+    }
+
+    .btn-copy:hover { border-color: var(--primary); color: var(--primary); }
+
+    /* ── AI Modal Special Styles ────────────────────────────── */
+    .ai-modal {
+      width: min(800px, 96vw);
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .ai-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .ai-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+      overflow-y: auto;
+      padding-right: 8px;
+    }
+
+    .ai-box {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .ai-box-title {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      color: var(--primary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .ai-box-content {
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: var(--text);
+      white-space: pre-wrap;
+      flex: 1;
+    }
+
+    .ai-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px;
+      gap: 20px;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Leads grid ──────────────────────────────────────────── */
+    .leads-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 20px;
+      padding: 0 32px 60px;
+    }
+
+    /* ── Lead card ───────────────────────────────────────────── */
+    .lead-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: border-color .25s, transform .25s, box-shadow .25s;
+      animation: cardIn .35s ease both;
+    }
+
+    .lead-card:hover {
+      border-color: var(--border-2);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    }
+
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .lead-card-header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+
+    .lead-avatar {
+      width: 42px;
+      height: 42px;
+      flex-shrink: 0;
+      background: var(--primary-dim);
+      border: 1px solid rgba(0,229,255,0.2);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .lead-info { flex: 1; min-width: 0; }
+
+    .lead-name {
+      font-weight: 700;
+      font-size: 0.95rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 3px;
+    }
+
+    .lead-cat {
+      font-size: 0.75rem;
+      color: var(--muted-2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .score-badge {
+      flex-shrink: 0;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 700;
+      border: 2px solid;
+    }
+
+    .score-high   { border-color: var(--green);  color: var(--green);  background: rgba(0,230,118,0.1); }
+    .score-mid    { border-color: var(--yellow); color: var(--yellow); background: rgba(255,215,64,0.1); }
+    .score-low    { border-color: var(--muted);  color: var(--muted);  background: transparent; }
+
+    .lead-card-body {
+      padding: 16px 20px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+
+    .lead-detail {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 0.82rem;
+    }
+
+    .lead-detail-icon {
+      flex-shrink: 0;
+      margin-top: 1px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .lead-detail-text {
+      color: var(--muted-2);
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .lead-detail-text a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    .lead-detail-text a:hover { text-decoration: underline; }
+
+    .rating-stars {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(255,215,64,0.1);
+      border: 1px solid rgba(255,215,64,0.2);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 0.78rem;
+      color: var(--yellow);
+      font-family: var(--mono);
+    }
+
+    /* ── Card footer ─────────────────────────────────────────── */
+    .lead-card-footer {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* ── No leads ────────────────────────────────────────────── */
+    .no-leads {
+      position: relative;
+      z-index: 1;
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 80px 32px;
+    }
+
+    .no-leads .emoji { font-size: 3rem; margin-bottom: 16px; }
+    .no-leads h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--text); }
+    .no-leads p  { font-size: 0.85rem; color: var(--muted-2); }
+
+    /* ── Tags (redes sociais) ────────────────────────────────── */
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .tag {
+      font-size: 0.68rem;
+      padding: 2px 8px;
+      border-radius: 20px;
+      border: 1px solid;
+      font-family: var(--mono);
+    }
+
+    .tag-instagram { border-color: rgba(225,48,108,0.4); color: rgb(225,48,108); background: rgba(225,48,108,0.06); }
+    .tag-facebook  { border-color: rgba(66,103,178,0.4); color: rgb(100,149,237); background: rgba(66,103,178,0.06); }
+    .tag-tiktok    { border-color: rgba(105,201,208,0.4); color: rgb(105,201,208); background: rgba(105,201,208,0.06); }
+    .tag-youtube   { border-color: rgba(255,0,0,0.3); color: rgb(255,80,80); background: rgba(255,0,0,0.05); }
+    .tag-twitter   { border-color: rgba(29,161,242,0.4); color: rgb(29,161,242); background: rgba(29,161,242,0.06); }
+    .tag-linkedin  { border-color: rgba(10,102,194,0.4); color: rgb(80,160,220); background: rgba(10,102,194,0.06); }
+
+    /* ── Toast ───────────────────────────────────────────────── */
+    .toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
+      border-radius: 10px;
+      padding: 12px 20px;
+      font-size: 0.85rem;
+      color: var(--text);
+      z-index: 300;
+      transition: transform .35s cubic-bezier(0.34,1.56,0.64,1), opacity .3s;
+      opacity: 0;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    /* ── Responsive ──────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .topbar  { padding: 12px 16px; }
+      .filter-bar, .leads-grid { padding-left: 16px; padding-right: 16px; }
+      .leads-grid { grid-template-columns: 1fr; }
+      .topbar-title { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Top bar ──────────────────────────────────────── -->
+<nav class="topbar">
+  <div class="topbar-left">
+    <a class="back-btn" href="/">← Voltar</a>
+    <div>
+      <div class="topbar-title">📋 Leads Capturados</div>
+      <div class="topbar-count" id="topbar-count">Carregando…</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="btn btn-ghost" id="btn-msg-template" onclick="openModal()">
+      ✏️ Mensagem Padrão
+    </button>
+    <a class="btn btn-primary" href="/api/download">⬇ XLSX</a>
+  </div>
+</nav>
+
+<!-- ── Filter bar ───────────────────────────────────── -->
+<div class="filter-bar">
+  <div class="search-wrap">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input class="search-input" id="search-input" type="text" placeholder="Buscar por nome, telefone, endereço…" oninput="renderLeads()" />
+  </div>
+  <select class="filter-select" id="filter-wa" onchange="renderLeads()">
+    <option value="todos">Todos os leads</option>
+    <option value="com_wa">✅ Só com WhatsApp</option>
+    <option value="sem_wa">❌ Sem WhatsApp</option>
+  </select>
+  <select class="filter-select" id="filter-site" onchange="renderLeads()">
+    <option value="todos">Qualquer site</option>
+    <option value="com_site">Com site</option>
+    <option value="sem_site">Sem site</option>
+  </select>
+  <div class="leads-count-chip" id="count-chip">0 leads</div>
+</div>
+
+<!-- ── Leads grid ───────────────────────────────────── -->
+<div class="leads-grid" id="leads-grid">
+  <div class="no-leads">
+    <div class="emoji">⏳</div>
+    <h3>Carregando leads…</h3>
+    <p>Aguarde um momento.</p>
+  </div>
+</div>
+
+<!-- ── Message Template Modal ───────────────────────── -->
+<div class="modal-overlay" id="modal-overlay" onclick="handleOverlayClick(event)">
+  <div class="modal">
+    <h2>✏️ Mensagem Personalizada</h2>
+    <p class="modal-sub">Escreva sua copy de conversão. Use as variáveis abaixo para personalizar cada mensagem.</p>
+
+    <div class="presets-row" id="presets-row">
+      <button class="preset-btn" onclick="applyPreset('prospeccao')">🎯 Prospecção</button>
+      <button class="preset-btn" onclick="applyPreset('site')">🌐 Criação de Site</button>
+      <button class="preset-btn" onclick="applyPreset('digital')">📱 Marketing Digital</button>
+      <button class="preset-btn" onclick="applyPreset('generico')">🤝 Genérico</button>
+    </div>
+
+    <label>Sua mensagem</label>
+    <textarea id="msg-template" placeholder="Digite a mensagem aqui…"></textarea>
+
+    <div class="modal-hint">
+      Variáveis disponíveis: <code>{nome}</code> será substituído pelo nome do negócio.
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveTemplate()">💾 Salvar</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── AI Copy Modal ────────────────────────────────── -->
+<div class="modal-overlay" id="ai-modal-overlay" onclick="handleAIOverlayClick(event)">
+  <div class="modal ai-modal">
+    <div class="ai-modal-header">
+      <div>
+        <h2 id="ai-modal-title">🤖 Gerando Copy com IA...</h2>
+        <p class="modal-sub" id="ai-modal-sub">Analisando o lead e criando textos persuasivos.</p>
+      </div>
+      <button class="btn btn-ghost" onclick="closeAIModal()">Fechar</button>
+    </div>
+
+    <div id="ai-loading" class="ai-loader">
+      <div class="spinner"></div>
+      <p style="color:var(--muted-2); font-size:0.9rem;">O Gemini está escrevendo suas copies...</p>
+    </div>
+
+    <div id="ai-content" class="ai-grid" style="display: none;">
+      <!-- Boxes will be injected here -->
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast ─────────────────────────────────────────── -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // ─── State ──────────────────────────────────────────────────────────────
+  let allLeads = [];
+  let msgTemplate = localStorage.getItem('wa_template') || '';
+
+  const COPY_PRESETS = {
+    prospeccao: `Olá, tudo bem? 😊\n\nMeu nome é [Seu Nome] e fiz uma pesquisa na minha região — encontrei o *{nome}* e fiquei impressionado com a avaliação de vocês!\n\nEstou entrando em contato porque tenho uma proposta que pode ajudar vocês a captarem ainda mais clientes online. 🚀\n\nPosso te mostrar em 5 minutos como isso funciona?\n\nAbraço!`,
+    site: `Olá! 👋\n\nPassei pelo perfil do *{nome}* no Google Maps e percebi que vocês ainda não têm site próprio.\n\nUm site bem feito pode aumentar em até 3x a captação de clientes pela internet — e o investimento cabe em qualquer orçamento.\n\nFazemos isso de forma rápida, profissional e sem complicação. Posso te enviar um modelo gratuito pra vocês avaliarem?\n\nEstou à disposição! 🙂`,
+    digital: `Oi, tudo bem? 😊\n\nSou especialista em marketing digital e encontrei o *{nome}* nas minhas pesquisas — o espaço e o trabalho de vocês me chamaram atenção!\n\nEu ajudo negócios locais como o seu a aparecerem na frente dos concorrentes no Google e nas redes sociais — com resultados mensuráveis e sem contratos longos.\n\nPosso te passar uma análise gratuita do seu negócio online essa semana?\n\nAbraço 👊`,
+    generico: `Olá! Tudo bem?\n\nEncontrei o *{nome}* na minha pesquisa e gostaria de apresentar uma solução que pode ajudar o negócio de vocês a crescer ainda mais.\n\nPode ser um bom momento para conversarmos? São só 5 minutinhos. 😊\n\nAguardo retorno!`,
+  };
+
+  // ─── Helpers ────────────────────────────────────────────────────────────
+  function showToast(msg, duration = 2800) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), duration);
+  }
+
+  function buildWaLink(lead, template) {
+    if (!lead.Link_WhatsApp || !lead.Link_WhatsApp.startsWith('http')) return null;
+    const baseUrl = lead.Link_WhatsApp;
+    if (!template) return baseUrl;
+    const msg = template.replace(/\{nome\}/g, lead.Nome || 'você');
+    return baseUrl + '?text=' + encodeURIComponent(msg);
+  }
+
+  function scoreClass(score) {
+    if (score >= 70) return 'score-high';
+    if (score >= 40) return 'score-mid';
+    return 'score-low';
+  }
+
+  function categoryEmoji(cat) {
+    const map = { dentis: '🦷', restaur: '🍽️', pizz: '🍕', padari: '🥐', clínic: '🏥', hotel: '🏨', pet: '🐾', mecân: '🔧', advog: '⚖️', salão: '💇', academia: '🏋️', mercad: '🛒', farmác: '💊', escola: '📚', imobil: '🏠' };
+    const c = (cat || '').toLowerCase();
+    for (const [k, v] of Object.entries(map)) { if (c.includes(k)) return v; }
+    return '🏢';
+  }
+
+  function renderTag(rede) {
+    const key = rede.toLowerCase().replace('/', '').replace('twitter', 'twitter').replace('x', 'twitter');
+    const cls = key.includes('instagram') ? 'tag-instagram' : key.includes('facebook') ? 'tag-facebook' : key.includes('tiktok') ? 'tag-tiktok' : key.includes('youtube') ? 'tag-youtube' : key.includes('twitter') ? 'tag-twitter' : 'tag-linkedin';
+    return `<span class="tag ${cls}">${rede}</span>`;
+  }
+
+  function renderCard(lead, idx) {
+    const hasWa  = lead.Link_WhatsApp && lead.Link_WhatsApp.startsWith('http');
+    const hasSite = lead.Site && lead.Site !== 'Sem site';
+    const score   = lead.Score_Lead ?? 0;
+    const waLink  = buildWaLink(lead, msgTemplate);
+    const waOpenLink = lead.Link_WhatsApp && lead.Link_WhatsApp.startsWith('http') ? lead.Link_WhatsApp : null;
+    const redes   = (lead.Redes_Sociais && lead.Redes_Sociais !== 'Nenhuma') ? lead.Redes_Sociais.split(',').map(r => r.trim()) : [];
+    const rating  = lead.Classificacao && lead.Classificacao !== 'Sem notas' ? lead.Classificacao : null;
+
+    // delay for staggered animation
+    const delay = Math.min(idx * 40, 600);
+
+    return `
+    <div class="lead-card" style="animation-delay:${delay}ms">
+      <div class="lead-card-header">
+        <div class="lead-avatar">${categoryEmoji(lead.Categoria)}</div>
+        <div class="lead-info">
+          <div class="lead-name" title="${lead.Nome}">${lead.Nome || 'Sem nome'}</div>
+          <div class="lead-cat">${lead.Categoria || '—'}</div>
+        </div>
+        <div class="score-badge ${scoreClass(score)}">${score}</div>
+      </div>
+
+      <div class="lead-card-body">
+        ${lead.Telefone && lead.Telefone !== 'Não encontrado' ? `
+        <div class="lead-detail">
+          <span class="lead-detail-icon">📞</span>
+          <span class="lead-detail-text">${lead.Telefone}</span>
+        </div>` : ''}
+
+        ${rating ? `
+        <div class="lead-detail">
+          <span class="lead-detail-icon">⭐</span>
+          <span class="lead-detail-text">
+            <span class="rating-stars">★ ${rating}</span>
+          </span>
+        </div>` : ''}
+
+        ${lead.Endereco && lead.Endereco !== 'Não encontrado' ? `
+        <div class="lead-detail">
+          <span class="lead-detail-icon">📍</span>
+          <span class="lead-detail-text">${lead.Endereco}</span>
+        </div>` : ''}
+
+        ${hasSite ? `
+        <div class="lead-detail">
+          <span class="lead-detail-icon">🌐</span>
+          <span class="lead-detail-text"><a href="${lead.Site}" target="_blank" rel="noopener">${lead.Site.replace(/^https?:\/\//, '').split('/')[0]}</a></span>
+        </div>` : `
+        <div class="lead-detail">
+          <span class="lead-detail-icon">🌐</span>
+          <span class="lead-detail-text" style="color:var(--muted)">Sem site — oportunidade!</span>
+        </div>`}
+
+        ${redes.length ? `
+        <div class="lead-detail">
+          <span class="lead-detail-icon">📲</span>
+          <span class="lead-detail-text">
+            <div class="tags">${redes.map(renderTag).join('')}</div>
+          </span>
+        </div>` : ''}
+      </div>
+
+      <div class="lead-card-footer">
+        ${hasWa ? `
+          <a class="btn btn-wa" href="${waLink}" target="_blank" rel="noopener">
+            Enviar Mensagem
+          </a>
+          <a class="btn btn-wa-open" href="${waOpenLink}" target="_blank" rel="noopener">
+            Abrir WA
+          </a>
+        ` : `<span style="font-size:0.78rem;color:var(--muted);align-self:center;">📵 Sem WhatsApp</span>`}
+        
+        ${lead.Instagram_URL ? `
+          <a class="btn btn-instagram" href="${lead.Instagram_URL}" target="_blank" rel="noopener">
+            Instagram
+          </a>
+        ` : ''}
+
+        <button class="btn btn-ai" onclick="generateAICopy(${idx})">
+          🪄 IA Copy
+        </button>
+
+        <button class="btn btn-copy" onclick="copyName('${(lead.Nome||'').replace(/'/g,"\\'")}')">📋</button>
+      </div>
+    </div>`;
+  }
+
+  function renderLeads() {
+    const query     = document.getElementById('search-input').value.toLowerCase();
+    const waFilter  = document.getElementById('filter-wa').value;
+    const siteFilter = document.getElementById('filter-site').value;
+
+    let filtered = allLeads.filter(lead => {
+      const haystack = [lead.Nome, lead.Telefone, lead.Endereco, lead.Categoria].join(' ').toLowerCase();
+      if (query && !haystack.includes(query)) return false;
+      const hasWa = lead.Link_WhatsApp && lead.Link_WhatsApp.startsWith('http');
+      if (waFilter === 'com_wa'  && !hasWa) return false;
+      if (waFilter === 'sem_wa'  &&  hasWa) return false;
+      const hasSite = lead.Site && lead.Site !== 'Sem site';
+      if (siteFilter === 'com_site'  && !hasSite) return false;
+      if (siteFilter === 'sem_site'  &&  hasSite) return false;
+      return true;
+    });
+
+    const chip = document.getElementById('count-chip');
+    chip.textContent = `${filtered.length} lead${filtered.length !== 1 ? 's' : ''}`;
+
+    const grid = document.getElementById('leads-grid');
+    if (!filtered.length) {
+      grid.innerHTML = `<div class="no-leads">
+        <div class="emoji">🔍</div>
+        <h3>Nenhum lead encontrado</h3>
+        <p>Tente ajustar os filtros ou a busca.</p>
+      </div>`;
+      return;
+    }
+
+    grid.innerHTML = filtered.map((l, i) => renderCard(l, i)).join('');
+    window.filteredLeads = filtered;
+  }
+
+  function copyName(name) {
+    navigator.clipboard.writeText(name).then(() => showToast(`✅ "${name}" copiado!`));
+  }
+
+  // ─── Modal ───────────────────────────────────────────────────────────────
+  function openAIModal(name) {
+    document.getElementById('ai-modal-overlay').classList.add('open');
+    document.getElementById('ai-modal-title').textContent = `🤖 Copy para: ${name}`;
+    document.getElementById('ai-loading').style.display = 'flex';
+    document.getElementById('ai-content').style.display = 'none';
+  }
+  function closeAIModal() { document.getElementById('ai-modal-overlay').classList.remove('open'); }
+  function handleAIOverlayClick(e) { if (e.target.id === 'ai-modal-overlay') closeAIModal(); }
+
+  async function generateAICopy(idx) {
+    const lead = window.filteredLeads[idx];
+    if (!lead) return;
+
+    openAIModal(lead.Nome);
+
+    try {
+      const resp = await fetch('/api/generate_copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(lead)
+      });
+      const data = await resp.json();
+
+      if (data.success) {
+        renderAICopy(data.copy);
+      } else {
+        alert("Erro ao gerar copy: " + data.error);
+        closeAIModal();
+      }
+    } catch (err) {
+      alert("Erro de conexão: " + err);
+      closeAIModal();
+    }
+  }
+
+  function renderAICopy(copy) {
+    const grid = document.getElementById('ai-content');
+    grid.innerHTML = '';
+    
+    const titles = {
+      primeira_mensagem: "🎯 Primeira Mensagem",
+      promocao: "🔥 Promoção Imbatível",
+      landing_page: "🌐 Landing Page Copy",
+      sistema: "⚙️ Proposta de Sistema",
+      arte_criativo: "🎨 Ideia de Post",
+      video: "🎬 Script de Vídeo",
+      designer: "👔 Design & Branding"
+    };
+
+    Object.entries(copy).forEach(([key, text]) => {
+      const box = document.createElement('div');
+      box.className = 'ai-box';
+      box.innerHTML = `
+        <div class="ai-box-title">
+          ${titles[key] || key}
+          <button class="preset-btn" onclick="copyToClipboard('${text.replace(/'/g, "\\'")}', this)">Copiar</button>
+        </div>
+        <div class="ai-box-content">${text}</div>
+      `;
+      grid.appendChild(box);
+    });
+
+    document.getElementById('ai-loading').style.display = 'none';
+    grid.style.display = 'grid';
+  }
+
+  function copyToClipboard(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+      const original = btn.textContent;
+      btn.textContent = 'Copiado!';
+      btn.style.color = 'var(--green)';
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.style.color = '';
+      }, 2000);
+    });
+  }
+
+  function openModal() {
+    document.getElementById('msg-template').value = msgTemplate;
+    document.getElementById('modal-overlay').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+
+  function handleOverlayClick(e) {
+    if (e.target === document.getElementById('modal-overlay')) closeModal();
+  }
+
+  function saveTemplate() {
+    msgTemplate = document.getElementById('msg-template').value;
+    localStorage.setItem('wa_template', msgTemplate);
+    closeModal();
+    renderLeads(); // re-render to refresh wa links
+    showToast('✅ Mensagem padrão salva!');
+  }
+
+  function applyPreset(key) {
+    document.getElementById('msg-template').value = COPY_PRESETS[key] || '';
+  }
+
+  // ─── Init ────────────────────────────────────────────────────────────────
+  async function init() {
+    try {
+      const res  = await fetch('/api/leads');
+      const data = await res.json();
+      allLeads = Array.isArray(data) ? data : [];
+
+      const count = document.getElementById('topbar-count');
+      count.textContent = `${allLeads.length} lead${allLeads.length !== 1 ? 's' : ''} capturados`;
+
+      // Armazena versão filtrada para referência de index
+      window.filteredLeads = allLeads; 
+
+      if (!allLeads.length) {
+        document.getElementById('leads-grid').innerHTML = `<div class="no-leads">
+          <div class="emoji">😕</div>
+          <h3>Nenhum lead disponível</h3>
+          <p>Volte para a página principal e inicie uma prospecção primeiro.</p>
+        </div>`;
+        document.getElementById('count-chip').textContent = '0 leads';
+        return;
+      }
+
+      renderLeads();
+    } catch(e) {
+      document.getElementById('leads-grid').innerHTML = `<div class="no-leads">
+        <div class="emoji">⚠️</div>
+        <h3>Erro ao carregar leads</h3>
+        <p>Verifique se o servidor está rodando.</p>
+      </div>`;
+    }
+  }
+
+  // If template was saved before, show indicator
+  if (msgTemplate) {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('btn-msg-template').textContent = '✏️ Mensagem Padrão ✓';
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

@@ -1,105 +1,208 @@
 # Instale as dependências via terminal com o comando abaixo antes de rodar:
 # pip install selenium pandas openpyxl
 
-import os
 import time
 import re
+import random
 import urllib.parse
 import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+
+
+# ─────────────────────────────────────────────
+#  CONFIGURAÇÃO DO DRIVER
+# ─────────────────────────────────────────────
 
 def setup_driver(headless=False):
     """
-    Configura o Selenium WebDriver com opções otimizadas para Docker/Render.
-    Inclui opções de estabilidade para ambientes com pouca memória.
+    Configura o Selenium WebDriver com técnicas avançadas de evasão anti-bot.
+    Usa o Selenium Manager nativo (4.6+) — não precisa do webdriver_manager.
     """
     options = Options()
     if headless:
         options.add_argument("--headless=new")
-    
-    # Flags essenciais para Docker/containers com pouca memória
+
+    options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-setuid-sandbox")
-    options.add_argument("--single-process")           # Crítico para Render free tier
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-plugins")
-    options.add_argument("--disable-images")           # Não carrega imagens → muito mais rápido
-    options.add_argument("--window-size=1280,800")
-    options.add_argument("--memory-pressure-off")
-    options.add_argument("--max_old_space_size=256")
-    options.add_argument("--disable-background-networking")
-    options.add_argument("--disable-default-apps")
-    options.add_argument("--mute-audio")
-    
-    # Técnicas de evasão (mantidas)
+    options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--start-maximized")
+    options.add_argument("--lang=pt-BR")
+
+    # Rotaciona user-agents para reduzir detecção de padrão
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    ]
+    options.add_argument(f"user-agent={random.choice(user_agents)}")
+
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    
-    # Caminhos para Docker
-    chrome_bin = os.environ.get("CHROME_BIN")
-    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
-    
-    if chrome_bin:
-        options.binary_location = chrome_bin
-    
-    # Retry: tenta até 2 vezes inicializar o driver
-    for attempt in range(2):
+    options.add_experimental_option("useAutomationExtension", False)
+
+    driver = webdriver.Chrome(options=options)
+
+    # Remove timeout de carregamento de página (sem limite)
+    driver.set_page_load_timeout(300)   # 5 min máximo por página
+    driver.set_script_timeout(300)      # 5 min máximo por script
+
+    # Injeta script para ocultar rastreios de automação
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": """
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            window.chrome = { runtime: {} };
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['pt-BR', 'pt', 'en-US']});
+        """
+    })
+
+    return driver
+
+
+# ─────────────────────────────────────────────
+#  UTILITÁRIOS
+# ─────────────────────────────────────────────
+
+def _safe_wait(driver, by, selector, timeout=60, retries=3):
+    """
+    Tenta localizar um elemento com múltiplas tentativas e backoff exponencial.
+    Retorna o elemento ou None se não encontrar.
+    """
+    wait = WebDriverWait(driver, timeout)
+    for attempt in range(1, retries + 1):
         try:
-            if chromedriver_path and os.path.exists(chromedriver_path):
-                service = Service(executable_path=chromedriver_path)
-                driver = webdriver.Chrome(service=service, options=options)
-            else:
-                driver = webdriver.Chrome(options=options)
-            
-            # Esconde o "webdriver = true"
-            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-            })
-            driver.set_page_load_timeout(30)
-            driver.set_script_timeout(15)
-            return driver
-        except Exception as e:
-            if attempt == 0:
-                time.sleep(2)  # Aguarda e tenta de novo
-            else:
-                raise e
+            return wait.until(EC.presence_of_element_located((by, selector)))
+        except TimeoutException:
+            if attempt < retries:
+                sleep_time = attempt * 2 + random.uniform(0.5, 1.5)
+                time.sleep(sleep_time)
+    return None
+
+
+def _find_safe(driver, by, selector):
+    """find_element sem lançar exceção — retorna None se não encontrar."""
+    try:
+        return driver.find_element(by, selector)
+    except NoSuchElementException:
+        return None
+
+
+def _human_pause(base=1.8, variance=1.2):
+    """Pausa aleatória que imita comportamento humano."""
+    time.sleep(base + random.uniform(0, variance))
 
 
 def inferir_whatsapp(telefone):
-    """ Tenta detectar se o número é de celular brasileiro e gera link direto de WhatsApp. """
+    """Detecta se o número é celular brasileiro e gera link direto de WhatsApp."""
     if not telefone or telefone == "Não encontrado":
         return "Sem WhatsApp"
-    
-    # Capturar apenas dígitos numéricos
+
     digitos = re.sub(r'\D', '', telefone)
-    
-    # Validar formato brasileiro (Tirar DDI nacional)
+
     if digitos.startswith("55") and len(digitos) > 11:
         digitos = digitos[2:]
     elif digitos.startswith("0") and len(digitos) > 10:
         digitos = digitos[1:]
-        
-    # Celular brasileiro com DDD geralmente tem 11 dígitos e o terceiro dígito (após DDD) é 9
+
     if len(digitos) == 11 and digitos[2] == '9':
         return f"https://wa.me/55{digitos}"
-    
+
     return "Parece Telefone Fixo (Ou 0800)"
 
-def scrape_google_maps(keyword, headless=False, log_callback=None, max_results=None, min_rating=None, site_filter='todos', cancel_event=None):
+
+def calcular_score_lead(registro):
     """
-    Realiza o web scraping no Google Maps buscando pela palavra-chave com mais detalhes.
-    Suporta interrupção, limite numérico e filtro de presença de website.
+    Pontua a qualidade do lead de 0 a 100 com base nos dados disponíveis.
+    Critérios:
+      - Tem telefone celular       → +30
+      - Tem telefone fixo          → +15
+      - Tem site                   → +20
+      - Tem nota (reviews)         → +15
+      - Nota ≥ 4.0                 → +10 bônus
+      - Tem endereço               → +10
+      - Tem redes sociais          → +10
+      - Tem horário de func.       → +5
+    """
+    score = 0
+    tel = registro.get("Telefone", "")
+    wa  = registro.get("Link_WhatsApp", "")
+    site = registro.get("Site", "Sem site")
+    nota_raw = registro.get("Classificacao", "Sem notas")
+    endereco = registro.get("Endereco", "")
+    redes = registro.get("Redes_Sociais", "Nenhuma")
+    horario = registro.get("Horario", "")
+
+    if wa and "wa.me" in wa:
+        score += 30
+    elif tel and tel != "Não encontrado":
+        score += 15
+
+    if site and site != "Sem site":
+        score += 20
+
+    if nota_raw and nota_raw != "Sem notas":
+        score += 15
+        try:
+            nota_float = float(nota_raw.split(' ')[0].replace(',', '.'))
+            if nota_float >= 4.0:
+                score += 10
+        except Exception:
+            pass
+
+    if endereco and endereco != "Não encontrado":
+        score += 10
+
+    if redes and redes != "Nenhuma":
+        score += 10
+
+    if horario and horario != "Não encontrado":
+        score += 5
+
+    return min(score, 100)
+
+
+def extrair_coordenadas(url):
+    """Extrai latitude e longitude da URL do Google Maps quando disponível."""
+    match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', url)
+    if match:
+        return match.group(1), match.group(2)
+    return "N/A", "N/A"
+
+
+# ─────────────────────────────────────────────
+#  SCRAPER PRINCIPAL
+# ─────────────────────────────────────────────
+
+def scrape_google_maps(
+    keyword,
+    headless=False,
+    log_callback=None,
+    max_results=None,
+    min_rating=None,
+    site_filter='todos',
+    cancel_event=None
+):
+    """
+    Realiza o web scraping no Google Maps buscando pela palavra-chave.
+
+    Parâmetros:
+      keyword     : Termo de busca (ex: "Pizzaria em Niterói")
+      headless    : Rodar sem janela gráfica
+      log_callback: Função chamada a cada mensagem de log
+      max_results : Limite máximo de leads válidos a retornar
+      min_rating  : Nota mínima aceitável (float). None = sem filtro.
+      site_filter : 'todos' | 'com_site' | 'sem_site'
+      cancel_event: threading.Event() — seta para cancelar a operação
+
+    Retorna lista de dicts com os dados de cada estabelecimento.
     """
     def _log(msg):
         if log_callback:
@@ -108,229 +211,301 @@ def scrape_google_maps(keyword, headless=False, log_callback=None, max_results=N
             print(msg)
 
     driver = setup_driver(headless)
-    wait = WebDriverWait(driver, 10)
-    
-    url = f"https://www.google.com/maps/search/{urllib.parse.quote_plus(keyword)}"
-    _log(f"[{keyword}] Acessando o Google Maps...")
-    driver.get(url)
-    
+    wait   = WebDriverWait(driver, 60)  # sem timeout agressivo
     contacts = []
-    
-    try:
-        feed_container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='feed']")))
-        _log(f"[{keyword}] Lista de resultados encontrada. Iniciando rolagem (bypass bloqueios)...")
-        
-        try:
-            last_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
-        except Exception:
-            last_height = 0
-        
-        # Otimização: se só quer N resultados sem filtros, para bem cedo no scroll
-        # Com filtros, precisa rolar mais, mas também limita
-        can_skip_scroll = (
-            max_results == 1 and 
-            site_filter == 'todos' and 
-            min_rating is None
-        )
-        
-        # Multiplier: com filtros, precisamos de mais candidatos para compensar os rejeitados
-        scroll_buffer = 5 if not (site_filter != 'todos' or min_rating) else (max_results or 10) * 4
-        
-        if can_skip_scroll:
-            _log(f"[{keyword}] Qtd. máxima=1 → Pulando rolagem, pegando primeiro resultado direto.")
-        else:
-            while True:
-                if cancel_event and cancel_event.is_set():
-                    _log(f"[{keyword}] Operação de rolagem interrompida pelo usuário.")
-                    break
-                
-                try:
-                    driver.execute_script("arguments[0].scrollTo(0, arguments[0].scrollHeight)", feed_container)
-                except Exception:
-                    _log(f"[{keyword}] Erro de scroll, encerrando rolagem.")
-                    break
-                    
-                time.sleep(1.5)
-                
-                try:
-                    new_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
-                except Exception:
-                    break
-                
-                try:
-                    end_of_list = driver.find_element(By.XPATH, "//*[contains(text(), 'Você chegou ao fim da lista') or contains(text(), \"You've reached the end of the list\")]")
-                    if end_of_list.is_displayed():
-                        _log(f"[{keyword}] Fim da lista detectado com sucesso.")
-                        break
-                except NoSuchElementException:
-                    pass
-                    
-                # Parar cedo com base na quantidade de itens visíveis
-                if max_results:
-                    items_temp = feed_container.find_elements(By.CSS_SELECTOR, "a[href*='/maps/place/']")
-                    if len(items_temp) >= max_results + scroll_buffer:
-                        _log(f"[{keyword}] Itens suficientes ({len(items_temp)}) para atingir meta. Parando rolagem.")
-                        break
 
-                if new_height == last_height:
-                    try:
-                        feed_container.send_keys(Keys.PAGE_DOWN)
-                        time.sleep(1.5)
-                    except Exception:
-                        pass
-                    
-                    try:
-                        new_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
-                    except Exception:
-                        break
-                        
-                    if new_height == last_height:
-                        _log(f"[{keyword}] Sem mais resultados para carregar na rolagem.")
-                        break
-                        
-                last_height = new_height
-            
-        _log(f"[{keyword}] Rolagem concluída. Extraindo estabelecimentos agora...")
-        
-        items = feed_container.find_elements(By.CSS_SELECTOR, "a[href*='/maps/place/']")
-        unique_urls = list(set([item.get_attribute("href") for item in items if item.get_attribute("href")]))
-        _log(f"[{keyword}] Encontrados {len(unique_urls)} links únicos.")
-        
-        for idx, item_url in enumerate(unique_urls):
+    url = f"https://www.google.com/maps/search/{urllib.parse.quote_plus(keyword)}"
+    _log(f"[{keyword}] 🌐 Acessando o Google Maps...")
+
+    try:
+        driver.get(url)
+        _human_pause(2, 1)
+
+        # ── Aguarda o feed de resultados ──────────────────────────────────────
+        feed_container = _safe_wait(driver, By.CSS_SELECTOR, "div[role='feed']", timeout=60, retries=3)
+        if not feed_container:
+            _log(f"[{keyword}] ❌ Não foi possível carregar a lista de resultados.")
+            return contacts
+
+        _log(f"[{keyword}] 📋 Lista encontrada. Iniciando rolagem...")
+
+        # ── Rolagem para carregar todos os resultados ──────────────────────────
+        last_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
+        scroll_stuck_count = 0
+
+        while True:
             if cancel_event and cancel_event.is_set():
-                _log(f"[{keyword}] Extração abortada pelo usuário no item {idx+1}.")
+                _log(f"[{keyword}] ⛔ Rolagem interrompida pelo usuário.")
                 break
-                
-            progress_str = f"[{idx+1}/{len(unique_urls)}]"
-            if max_results:
-                progress_str += f" (Validados: {len(contacts)}/{max_results})"
-                
-            _log(f"[{keyword}] Lendo estabelecimento {progress_str}...")
-            driver.get(item_url)
-            
-            # Aguarda o título do lugar carregar em vez de sleep fixo longo
+
+            driver.execute_script("arguments[0].scrollTo(0, arguments[0].scrollHeight)", feed_container)
+            _human_pause(2.2, 1.0)
+
+            new_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
+
+            # Detecta fim de lista em PT e EN
             try:
-                wait.until(EC.presence_of_element_located((By.XPATH, "//h1")))
-                time.sleep(0.8) # Pequena pausa para garantir carregamento de outros dados (telefone/site)
-            except TimeoutException:
-                _log(f"   [!] Aviso: Título não carregou a tempo para {item_url}")
-            
-            nome = "Não encontrado"
-            telefone = "Não encontrado"
-            site = "Sem site"
-            classificacao = "Sem notas"
-            redes_sociais = "Nenhuma"
-            
-            # --- Nome ---
-            try:
-                nome_element = wait.until(EC.presence_of_element_located((By.XPATH, "//h1")))
-                nome = nome_element.text
-            except TimeoutException:
-                pass
-                
-            # --- Telefone ---
-            try:
-                phone_element = driver.find_element(By.CSS_SELECTOR, "[data-item-id^='phone:']")
-                telefone = phone_element.text
-            except NoSuchElementException:
-                pass
-                
-            # --- Site ---
-            site_links = []
-            try:
-                website_element = driver.find_element(By.CSS_SELECTOR, "[data-item-id='authority']")
-                site = website_element.get_attribute("href")
-            except NoSuchElementException:
-                pass
-                
-            # --- Classificação (Nota/Reviews) ---
-            try:
-                # O Google Maps geralmente guarda a nota no topo perto do H1, no primeiro div na mesma coluna
-                # Frequentemente, tem classe F7nice ou span com 'estrelas'
-                rating_element = driver.find_element(By.CSS_SELECTOR, "div.F7nice")
-                classificacao = rating_element.text.replace('\n', ' ')
-            except NoSuchElementException:
-                pass
-                
-            # --- Redes Sociais ---
-            try:
-                # Coletando todos os links da barra lateral
-                todas_tags_a = driver.find_elements(By.CSS_SELECTOR, "div[role='main'] a")
-                redes_detectadas = set()
-                
-                for a in todas_tags_a:
-                    href = a.get_attribute("href")
-                    if not href:
-                        continue
-                    if "instagram.com/" in href:
-                        redes_detectadas.add("Instagram")
-                    if "facebook.com/" in href:
-                        redes_detectadas.add("Facebook")
-                    if "linkedin.com/" in href:
-                        redes_detectadas.add("LinkedIn")
-                    if "twitter.com/" in href or "x.com/" in href:
-                        redes_detectadas.add("Twitter/X")
-                        
-                if redes_detectadas:
-                    redes_sociais = ", ".join(list(redes_detectadas))
+                end_markers = [
+                    "//*[contains(text(), 'Você chegou ao fim da lista')]",
+                    "//*[contains(text(), \"You've reached the end of the list\")]",
+                    "//*[contains(text(), 'No more results')]",
+                ]
+                for xpath in end_markers:
+                    el = driver.find_elements(By.XPATH, xpath)
+                    if el and el[0].is_displayed():
+                        _log(f"[{keyword}] ✅ Fim da lista detectado.")
+                        break
+                else:
+                    pass
+                # Se o loop interno quebrou por break, precisa sair do while também
+                # Vamos re-verificar usando flag
             except Exception:
                 pass
-                
-            # Formatações Finais
-            if not telefone or telefone.strip() == "":
-                telefone = "Não encontrado"
-            if not site or site.strip() == "":
-                site = "Sem site"
-            
+
+            # Verifica se já coletamos itens suficientes para parar a rolagem cedo
+            if max_results and site_filter == 'todos' and min_rating is None:
+                items_temp = feed_container.find_elements(By.CSS_SELECTOR, "a[href*='/maps/place/']")
+                if len(items_temp) >= max_results * 2:
+                    _log(f"[{keyword}] 🎯 Itens suficientes em cache. Parando rolagem cedo.")
+                    break
+
+            if new_height == last_height:
+                scroll_stuck_count += 1
+                if scroll_stuck_count >= 3:
+                    _log(f"[{keyword}] ℹ️ Sem novos resultados após {scroll_stuck_count} tentativas.")
+                    break
+                # Tenta forçar via teclado
+                try:
+                    feed_container.send_keys(Keys.END)
+                    _human_pause(1.5, 0.8)
+                except Exception:
+                    pass
+            else:
+                scroll_stuck_count = 0
+
+            last_height = new_height
+
+        _log(f"[{keyword}] 🔍 Extraindo links dos estabelecimentos...")
+
+        items = feed_container.find_elements(By.CSS_SELECTOR, "a[href*='/maps/place/']")
+        unique_urls = list(dict.fromkeys(
+            item.get_attribute("href") for item in items if item.get_attribute("href")
+        ))
+        _log(f"[{keyword}] 🗺️  {len(unique_urls)} links únicos encontrados.")
+
+        # ── Visita cada estabelecimento ──────────────────────────────────────
+        for idx, item_url in enumerate(unique_urls):
+            if cancel_event and cancel_event.is_set():
+                _log(f"[{keyword}] ⛔ Extração abortada no item {idx + 1}.")
+                break
+
+            progress = f"[{idx + 1}/{len(unique_urls)}]"
+            if max_results:
+                progress += f" (Validados: {len(contacts)}/{max_results})"
+            _log(f"[{keyword}] 📍 Lendo estabelecimento {progress}...")
+
+            # Retry de navegação com backoff
+            page_loaded = False
+            for nav_attempt in range(1, 4):
+                try:
+                    driver.get(item_url)
+                    # Aguarda o H1 do nome carregar como sinal de página pronta
+                    h1_el = _safe_wait(driver, By.XPATH, "//h1", timeout=30, retries=2)
+                    if h1_el:
+                        page_loaded = True
+                        break
+                    else:
+                        _log(f"[{keyword}]   ⚠️ Tentativa {nav_attempt}: H1 não carregou, tentando novamente...")
+                        _human_pause(nav_attempt * 2, 1)
+                except WebDriverException as e:
+                    _log(f"[{keyword}]   ⚠️ Erro de navegação (tentativa {nav_attempt}): {type(e).__name__}")
+                    _human_pause(nav_attempt * 2, 1.5)
+
+            if not page_loaded:
+                _log(f"[{keyword}]   ❌ Estabelecimento ignorado após falhas consecutivas.")
+                continue
+
+            _human_pause(1.2, 0.8)
+
+            # ── Extração dos campos ──────────────────────────────────────────
+
+            # Nome
+            nome = "Não encontrado"
+            try:
+                nome = driver.find_element(By.XPATH, "//h1").text.strip()
+            except Exception:
+                pass
+
+            # Telefone
+            telefone = "Não encontrado"
+            try:
+                el = _find_safe(driver, By.CSS_SELECTOR, "[data-item-id^='phone:']")
+                if el:
+                    telefone = el.text.strip()
+            except Exception:
+                pass
+
+            # Site
+            site = "Sem site"
+            try:
+                el = _find_safe(driver, By.CSS_SELECTOR, "[data-item-id='authority']")
+                if el:
+                    href = el.get_attribute("href")
+                    if href:
+                        site = href.strip()
+            except Exception:
+                pass
+
+            # Endereço
+            endereco = "Não encontrado"
+            try:
+                el = _find_safe(driver, By.CSS_SELECTOR, "[data-item-id^='address']")
+                if el:
+                    endereco = el.text.strip()
+                else:
+                    # Fallback: procurar via aria-label
+                    els = driver.find_elements(By.CSS_SELECTOR, "[aria-label*='Endereço']")
+                    if els:
+                        endereco = els[0].text.strip()
+            except Exception:
+                pass
+
+            # Categoria / Tipo do negócio
+            categoria = "Não encontrado"
+            try:
+                el = _find_safe(driver, By.CSS_SELECTOR, "button.DkEaL")
+                if el:
+                    categoria = el.text.strip()
+                else:
+                    # Fallback via span próximo ao H1
+                    els = driver.find_elements(By.CSS_SELECTOR, "div.LBgpqf button")
+                    if els:
+                        categoria = els[0].text.strip()
+            except Exception:
+                pass
+
+            # Classificação (nota + número de avaliações)
+            classificacao = "Sem notas"
+            num_avaliacoes = "0"
+            try:
+                el = _find_safe(driver, By.CSS_SELECTOR, "div.F7nice")
+                if el:
+                    raw = el.text.replace('\n', ' ').strip()
+                    classificacao = raw
+                    # Extrai número de avaliações separadamente
+                    match = re.search(r'\(([0-9.,]+)\)', raw)
+                    if match:
+                        num_avaliacoes = match.group(1).replace('.', '').replace(',', '')
+            except Exception:
+                pass
+
+            # Horário de funcionamento
+            horario = "Não encontrado"
+            try:
+                # Botão de horários — expande e extrai
+                btn = _find_safe(driver, By.CSS_SELECTOR, "[data-hide-tooltip-on-mouse-move='true'] .ZDu9vd")
+                if btn:
+                    horario = btn.text.strip()
+                else:
+                    # Tentativa alternativa
+                    els = driver.find_elements(By.CSS_SELECTOR, "div[aria-label*='horário'], div[aria-label*='Aberto']")
+                    if els:
+                        horario = els[0].get_attribute("aria-label") or els[0].text.strip()
+            except Exception:
+                pass
+
+            # Redes sociais
+            redes_detectadas = set()
+            instagram_url = ""
+            try:
+                tags_a = driver.find_elements(By.CSS_SELECTOR, "div[role='main'] a")
+                for a in tags_a:
+                    href = a.get_attribute("href") or ""
+                    if "instagram.com/" in href:
+                        redes_detectadas.add("Instagram")
+                        if not instagram_url:           # salva primeira URL encontrada
+                            instagram_url = href.split('?')[0].rstrip('/')
+                    if "facebook.com/"   in href: redes_detectadas.add("Facebook")
+                    if "linkedin.com/"   in href: redes_detectadas.add("LinkedIn")
+                    if "twitter.com/"    in href or "x.com/" in href: redes_detectadas.add("Twitter/X")
+                    if "tiktok.com/"     in href: redes_detectadas.add("TikTok")
+                    if "youtube.com/"    in href: redes_detectadas.add("YouTube")
+            except Exception:
+                pass
+
+            redes_sociais = ", ".join(sorted(redes_detectadas)) if redes_detectadas else "Nenhuma"
+
+            # Coordenadas GPS da URL
+            lat, lng = extrair_coordenadas(item_url)
+
+            # ── Normalização final ───────────────────────────────────────────
+            telefone   = telefone   if telefone   else "Não encontrado"
+            site       = site       if site       else "Sem site"
+            endereco   = endereco   if endereco   else "Não encontrado"
+            categoria  = categoria  if categoria  else "Não encontrado"
+            horario    = horario    if horario    else "Não encontrado"
+
             link_whatsapp = inferir_whatsapp(telefone)
-            
-            # --- Filtros de Inclusão ---
-            has_site = (site != "Sem site")
-            if site_filter == 'com_site' and not has_site:
-                continue
-            if site_filter == 'sem_site' and has_site:
-                continue
-                
-            # --- Filtro de Classificação (Nota Mínima) ---
+
+            # ── Filtros de inclusão ──────────────────────────────────────────
+            has_site = site != "Sem site"
+            if site_filter == 'com_site'  and not has_site: continue
+            if site_filter == 'sem_site'  and has_site:     continue
+
             if min_rating is not None:
                 if classificacao == "Sem notas":
                     if min_rating > 0:
-                        continue # Rejeita local sem review
+                        continue
                 else:
                     try:
-                        # Extrai os dígitos primários (ex: '4,8' de '4,8 (120)') e converte pra float
-                        nota_str = classificacao.split(' ')[0].replace(',', '.')
-                        nota_float = float(nota_str)
+                        nota_float = float(classificacao.split(' ')[0].replace(',', '.'))
                         if nota_float < min_rating:
-                            continue # Rejeita notas menores que o limiar
+                            continue
                     except Exception:
-                        pass # Falha rara no parseamento, deixa passar.
-                
-            contacts.append({
-                "Nome": nome,
-                "Telefone": telefone,
-                "Link_WhatsApp": link_whatsapp,
-                "Site": site,
-                "Redes_Sociais": redes_sociais,
-                "Classificacao": classificacao,
-                "URL_Maps": item_url
-            })
-            
-            # --- Limite de Resultados ---
+                        pass
+
+            registro = {
+                "Nome":           nome,
+                "Categoria":      categoria,
+                "Telefone":       telefone,
+                "Link_WhatsApp":  link_whatsapp,
+                "Instagram_URL":  instagram_url,
+                "Site":           site,
+                "Redes_Sociais":  redes_sociais,
+                "Classificacao":  classificacao,
+                "Num_Avaliacoes": num_avaliacoes,
+                "Endereco":       endereco,
+                "Horario":        horario,
+                "Latitude":       lat,
+                "Longitude":      lng,
+                "URL_Maps":       item_url,
+            }
+
+            registro["Score_Lead"] = calcular_score_lead(registro)
+
+            contacts.append(registro)
+            _log(f"[{keyword}]   ✔ '{nome}' adicionado. Score: {registro['Score_Lead']}/100")
+
             if max_results and len(contacts) >= max_results:
-                _log(f"[{keyword}] Limite atingido: {max_results} leads validados processados com sucesso.")
+                _log(f"[{keyword}] 🏁 Limite atingido: {max_results} leads validados.")
                 break
-            
+
     except Exception as e:
-        _log(f"[{keyword}] Um erro ocorreu durante a captura: {e}")
+        _log(f"[{keyword}] ❌ Erro inesperado: {e}")
     finally:
         driver.quit()
-        
+
+    _log(f"[{keyword}] 🎉 Extração concluída. Total: {len(contacts)} leads.")
     return contacts
+
+
+# ─────────────────────────────────────────────
+#  EXPORTAÇÃO
+# ─────────────────────────────────────────────
 
 def remover_duplicatas_e_salvar(data, filename="resultados.xlsx", log_callback=None):
     """
-    Usa o Pandas para remover registros repetidos e gerar o arquivo de saída.
+    Remove duplicatas, ordena por Score_Lead e salva em XLSX (e opcionalmente CSV).
     """
     def _log(msg):
         if log_callback:
@@ -339,39 +514,74 @@ def remover_duplicatas_e_salvar(data, filename="resultados.xlsx", log_callback=N
             print(msg)
 
     if not data:
-        _log("Nenhum dado extraído para tratamento.")
+        _log("⚠️  Nenhum dado extraído para tratamento.")
         return None
-        
+
     df = pd.DataFrame(data)
     qtd_inicial = len(df)
-    
+
     df.drop_duplicates(subset=["Nome", "Telefone"], keep="first", inplace=True)
+
+    # Ordena pelos leads de maior qualidade primeiro
+    if "Score_Lead" in df.columns:
+        df.sort_values("Score_Lead", ascending=False, inplace=True)
+
     qtd_final = len(df)
-    
-    # Melhoria na ordenação das colunas do Excel
-    ordem_colunas = ['Nome', 'Telefone', 'Link_WhatsApp', 'Classificacao', 'Site', 'Redes_Sociais', 'URL_Maps']
+    _log(f"🧹 {qtd_inicial - qtd_final} duplicata(s) removida(s). {qtd_final} leads únicos.")
+
+    ordem_colunas = [
+        'Score_Lead', 'Nome', 'Categoria', 'Telefone', 'Link_WhatsApp',
+        'Classificacao', 'Num_Avaliacoes', 'Site', 'Redes_Sociais',
+        'Endereco', 'Horario', 'Latitude', 'Longitude', 'URL_Maps'
+    ]
     df = df.reindex(columns=[c for c in ordem_colunas if c in df.columns])
-    
-    _log(f"Processamento: {qtd_inicial - qtd_final} locais repetidos removidos.")
-    
+
+    # Salva XLSX
     if filename.endswith('.csv'):
         df.to_csv(filename, index=False, encoding='utf-8-sig')
+        _log(f"💾 CSV salvo: {filename}")
     else:
-        df.to_excel(filename, index=False)
-        
-    _log(f"--> SUCESSO! Mágica finalizada! Arquivo com {qtd_final} registros salvo.")
+        # Salva XLSX com formatação básica de largura de coluna
+        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Leads')
+            ws = writer.sheets['Leads']
+            for col in ws.columns:
+                max_len = max((len(str(cell.value or "")) for cell in col), default=10)
+                ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 60)
+        _log(f"💾 XLSX salvo: {filename}")
+
+        # Salva CSV junto, mesmo nome com extensão trocada
+        csv_name = filename.replace('.xlsx', '.csv')
+        df.to_csv(csv_name, index=False, encoding='utf-8-sig')
+        _log(f"💾 CSV espelho salvo: {csv_name}")
+
+    _log(f"✅ CONCLUÍDO! {qtd_final} leads prontos.")
     return filename
 
-if __name__ == "__main__":
-    PALAVRA_CHAVE = "Pizzaria em Niterói"
-    RODAR_OCULTO = False 
-    NOME_DO_ARQUIVO = "prospeccao_teste.xlsx"
-    
-    print("-" * 60)
-    print("INICIANDO BOT STEALTH COM GOOGLE MAPS")
-    print(f"Alvo: {PALAVRA_CHAVE}")
-    print("-" * 60)
-    
-    dados_extraidos = scrape_google_maps(PALAVRA_CHAVE, headless=RODAR_OCULTO)
-    remover_duplicatas_e_salvar(dados_extraidos, NOME_DO_ARQUIVO)
 
+# ─────────────────────────────────────────────
+#  MODO STANDALONE
+# ─────────────────────────────────────────────
+
+if __name__ == "__main__":
+    PALAVRA_CHAVE  = "Pizzaria em Niterói"
+    RODAR_OCULTO   = False
+    NOME_DO_ARQUIVO = "prospeccao_teste.xlsx"
+    LIMITE         = 20       # None = sem limite
+    NOTA_MINIMA    = None     # ex: 4.0
+    FILTRO_SITE    = 'todos'  # 'todos' | 'com_site' | 'sem_site'
+
+    print("-" * 60)
+    print("  BOT STEALTH — GOOGLE MAPS SCRAPER")
+    print(f"  Alvo  : {PALAVRA_CHAVE}")
+    print(f"  Limite: {LIMITE or 'sem limite'}")
+    print("-" * 60)
+
+    dados = scrape_google_maps(
+        PALAVRA_CHAVE,
+        headless=RODAR_OCULTO,
+        max_results=LIMITE,
+        min_rating=NOTA_MINIMA,
+        site_filter=FILTRO_SITE,
+    )
+    remover_duplicatas_e_salvar(dados, NOME_DO_ARQUIVO)
