@@ -253,10 +253,12 @@ def scrape_stream():
     def event_stream():
         while True:
             try:
-                msg = status_queue.get(timeout=300)
+                # Timeout curto (15s) para enviar keep-alive e evitar queda de conexão
+                msg = status_queue.get(timeout=15)
                 yield f"data: {msg}\n\n"
                 if msg.startswith("DONE|"): break
             except queue.Empty:
+                # Envia comentário de keep-alive para manter a conexão ativa
                 yield ": keep-alive\n\n"
     return Response(event_stream(), mimetype="text/event-stream")
 
