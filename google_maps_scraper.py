@@ -13,7 +13,10 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.remote.remote_connection import RemoteConnection
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException, ProtocolError
+
+# Aumenta o timeout da conexão entre o script e o driver (corrige erro de localhost / Read timed out)
+RemoteConnection.set_timeout(300)
 
 
 # ─────────────────────────────────────────────
@@ -51,6 +54,13 @@ def setup_driver(headless=False):
     options.add_argument("--disable-features=Translate,OptimizationHints,OptimizationGuide,OptimizationGuideFetching,OptimizationTargetPrediction")
     options.add_argument("--disable-browser-side-navigation")
     options.add_argument("--dns-prefetch-disable")
+    
+    # NOVAS FLAGS PARA ESTABILIDADE NO RENDER (0.1 CPU / 512MB RAM)
+    options.add_argument("--no-zygote")
+    options.add_argument("--single-process")
+    options.add_argument("--disable-canvas-aa")
+    options.add_argument("--disable-2d-canvas-clip-utils")
+    options.add_argument("--disable-gl-drawing-for-tests")
 
     # DESATIVA CARREGAMENTO DE IMAGENS PARA GANHAR PERFORMANCE
     # 2 = Block images
@@ -345,7 +355,8 @@ def scrape_google_maps(
                         _human_pause(nav_attempt * 2, 1.5)
 
                 if not page_loaded:
-                    _log(f"[{keyword}]   ❌ Estabelecimento ignorado após falhas consecutivas.")
+                    _log(f"[{keyword}]   ❌ Estabelecimento ignorado após falhas consecutivas ou timeout de conexão.")
+                    # Se falhou por timeout de conexão, tenta reiniciar o driver (opcional, por ora apenas ignora)
                     continue
 
                 _human_pause(1.2, 0.8)
