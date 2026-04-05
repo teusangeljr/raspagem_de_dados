@@ -90,12 +90,12 @@ def setup_driver(headless=False):
     options.add_experimental_option("useAutomationExtension", False)
 
     # BLOQUEIO DE RECURSOS PARA MAXIMIZAR VELOCIDADE (Render Production Mode)
-    # Bloqueia Imagens (já estava), mas agora também CSS (opcional, vamos manter por segurança se a estrutura quebrar, mas vamos desativar fonts)
+    # Bloqueia Imagens e Fontes, mas PERMITE CSS para não quebrar a estrutura de dados (necessário no Render)
     prefs = {
-        "profile.managed_default_content_settings.images": 2, # Block images
-        "profile.default_content_setting_values.notifications": 2,
-        "profile.managed_default_content_settings.stylesheets": 2, # BLOQUEIA CSS (Ganho de 40% de velocidade)
-        "profile.managed_default_content_settings.fonts": 2,       # BLOQUEIA FONTS
+        "profile.managed_default_content_settings.images": 2,      # Bloqueia Imagens
+        "profile.default_content_setting_values.notifications": 2, # Bloqueia Notificações
+        "profile.managed_default_content_settings.stylesheets": 1, # PERMITE CSS (Evita Nome="Results")
+        "profile.managed_default_content_settings.fonts": 2,       # Bloqueia Fontes
     }
     options.add_experimental_option("prefs", prefs)
 
@@ -386,36 +386,63 @@ def scrape_google_maps(
                 if not item_found:
                     driver.get(item_url)
                 
-                # Aguarda o painel lateral atualizar
-                _safe_wait(driver, By.XPATH, "//h1", timeout=15)
-                _human_pause(0.6, 0.3)
-
-                # Extração rápida
+                # Aguarda o painel lateral carregar e o título aparecer
+                # Esperamos por um h1 que não seja "Resultados..."
+                _human_pause(1.5, 0.5) 
+                
                 nome = "Não encontrado"
-                try: nome = driver.find_element(By.XPATH, "//h1").text.strip()
-                except: pass
+                tentativas_nome = 0
+                while tentativas_nome < 5:
+                    try:
+                        h1_elements = driver.find_elements(By.TAG_NAME, "h1")
+                        for h1 in h1_elements:
+                            txt = h1.text.strip()
+                            if txt and "Resultado" not in txt and "Results" not in txt and "Filtro" not in txt:
+                                nome = txt
+                                break
+                        if nome != "Não encontrado": break
+                    except: pass
+                    _human_pause(0.5, 0.2)
+                    tentativas_nome += 1
+
+                # Se pegou nome genérico ou vazio, tenta seletor de classe comum do Maps
+                if nome == "Não encontrado" or "Result" in nome:
+                    try:
+                        el_nome = _find_safe(driver, By.CSS_SELECTOR, "h1.DUwDfb")
+                        if el_nome: nome = el_nome.text.strip()
+                    except: pass
 
                 telefone = "Não encontrado"
                 try:
+                    # Tenta múltiplos seletores para telefone
                     el = _find_safe(driver, By.CSS_SELECTOR, "[data-item-id^='phone:']")
-                    if el: telefone = el.text.strip()
+                    if not el: el = _find_safe(driver, By.CSS_SELECTOR, "button[aria-label*='Telefone'], button[aria-label*='Phone']")
+                    if el: telefone = el.get_attribute("aria-label").replace("Telefone: ", "").replace("Phone: ", "").strip()
+                    if not telefone or telefone == "Não encontrado":
+                        if el: telefone = el.text.strip()
                 except: pass
 
                 site = "Sem site"
                 try:
                     el = _find_safe(driver, By.CSS_SELECTOR, "[data-item-id='authority']")
+                    if not el: el = _find_safe(driver, By.CSS_SELECTOR, "a[aria-label*='Website'], a[aria-label*='Sítio']")
                     if el: site = el.get_attribute("href").strip()
                 except: pass
 
                 endereco = "Não encontrado"
                 try:
                     el = _find_safe(driver, By.CSS_SELECTOR, "[data-item-id^='address']")
-                    if el: endereco = el.text.strip()
+                    if not el: el = _find_safe(driver, By.CSS_SELECTOR, "button[aria-label*='Endereço'], button[aria-label*='Address']")
+                    if el: 
+                        endereco = el.get_attribute("aria-label").replace("Endereço: ", "").replace("Address: ", "").strip()
+                        if not endereco or endereco == "Não encontrado": endereco = el.text.strip()
                 except: pass
 
                 categoria = "Não encontrado"
                 try:
-                    el = _find_safe(driver, By.CSS_SELECTOR, "div.LBgpqf button")
+                    # Seletores comuns para categoria (logo abaixo do nome)
+                    el = _find_safe(driver, By.CSS_SELECTOR, "button[jsaction*='pane.rating.category']")
+                    if not el: el = _find_safe(driver, By.CSS_SELECTOR, "div.LBgpqf button")
                     if el: categoria = el.text.strip()
                 except: pass
 
