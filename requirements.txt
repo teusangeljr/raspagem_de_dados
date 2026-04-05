@@ -3,3 +3,5 @@ pandas
 selenium
 openpyxl
 gunicorn
+Appium-Python-Client>=3.0.0
+selenium>=4.10.0
