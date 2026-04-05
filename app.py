@@ -9,8 +9,6 @@ from datetime import datetime
 from flask import Flask, render_template, request, Response, jsonify, send_file
 from google_maps_scraper import scrape_google_maps, remover_duplicatas_e_salvar
 
-# Gemini / AI features removed for production stability
-
 app = Flask(__name__)
 
 # ─────────────────────────────────────────────

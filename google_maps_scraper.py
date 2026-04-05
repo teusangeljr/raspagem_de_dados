@@ -386,31 +386,37 @@ def scrape_google_maps(
                 if not item_found:
                     driver.get(item_url)
                 
-                # Aguarda o painel lateral carregar e o título aparecer
-                # Esperamos por um h1 que não seja "Resultados..."
-                _human_pause(1.5, 0.5) 
-                
-                nome = "Não encontrado"
-                tentativas_nome = 0
-                while tentativas_nome < 5:
-                    try:
-                        h1_elements = driver.find_elements(By.TAG_NAME, "h1")
-                        for h1 in h1_elements:
-                            txt = h1.text.strip()
-                            if txt and "Resultado" not in txt and "Results" not in txt and "Filtro" not in txt:
-                                nome = txt
-                                break
-                        if nome != "Não encontrado": break
-                    except: pass
-                    _human_pause(0.5, 0.2)
-                    tentativas_nome += 1
+                # --- EXTRAÇÃO COM RETRY (Resiliência para o Render) ---
+                def capturar_nome():
+                    for _ in range(8): # Aumentado para 8 tentativas
+                        try:
+                            h1_elements = driver.find_elements(By.TAG_NAME, "h1")
+                            for h1 in h1_elements:
+                                txt = h1.text.strip()
+                                # Ignora cabeçalhos genéricos do Google Maps
+                                if txt and not any(x in txt for x in ["Resultado", "Results", "Filtro", "Pesquisar", "Maps"]):
+                                    return txt
+                        except: pass
+                        _human_pause(0.6, 0.2)
+                    # Fallback por classe específica
+                    el_c = _find_safe(driver, By.CSS_SELECTOR, "h1.DUwDfb")
+                    if el_c and el_c.text.strip(): return el_c.text.strip()
+                    return "Não encontrado"
 
-                # Se pegou nome genérico ou vazio, tenta seletor de classe comum do Maps
-                if nome == "Não encontrado" or "Result" in nome:
-                    try:
-                        el_nome = _find_safe(driver, By.CSS_SELECTOR, "h1.DUwDfb")
-                        if el_nome: nome = el_nome.text.strip()
-                    except: pass
+                nome = capturar_nome()
+
+                # Se falhou, tenta uma recarga forçada (Segunda chance)
+                if nome == "Não encontrado":
+                    _log(f"[{keyword}]   ⏳ Lentidão detectada. Recarregando item...")
+                    driver.get(item_url)
+                    _human_pause(5.0, 1.0) # Espera longa para o Render estabilizar
+                    nome = capturar_nome()
+
+                # Se ainda assim não encontrou, pula este lead para não gerar lixo no dashboard
+                if nome == "Não encontrado":
+                    _log(f"[{keyword}]   ⚠️  Não foi possível ler este lead após retentativas. Pulando...")
+                    current_idx += 1
+                    continue
 
                 telefone = "Não encontrado"
                 try:
