@@ -9,8 +9,7 @@ from datetime import datetime
 from flask import Flask, render_template, request, Response, jsonify, send_file
 from google_maps_scraper import scrape_google_maps, remover_duplicatas_e_salvar
 
-GEMINI_API_KEY = "AIzaSyCT4_yoLvQZWt8PFF3mJk2YtKIjd_8QhRk"
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+# Gemini / AI features removed for production stability
 
 app = Flask(__name__)
 
@@ -162,58 +161,9 @@ def api_leads():
     return jsonify(last_leads)
 
 
-@app.route('/api/generate_copy', methods=['POST'])
-def generate_copy():
-    lead = request.json or {}
-    nome       = lead.get('Nome', 'o estabelecimento')
-    categoria  = lead.get('Categoria', 'negócio local')
-    endereco   = lead.get('Endereco', '')
-    classif    = lead.get('Classificacao', '')
-    site       = lead.get('Site', 'Sem site')
-    redes      = lead.get('Redes_Sociais', '')
-    tem_site   = site and site != 'Sem site'
-
-    prompt = f"""Você é um especialista em copywriting e prospecção B2B para agência de marketing digital. \
-Baseado nos dados do estabelecimento abaixo, gere textos altamente persuasivos e personalizados focados em vender serviços de marketing, sites e gestão.
-
-DADOS DO ESTABELECIMENTO:
-- Nome: {nome}
-- Categoria: {categoria}
-- Localização: {endereco or 'Não informada'}
-- Avaliação no Google: {classif or 'Não informada'}
-- Tem site: {'Sim — já está online' if tem_site else 'Não — GRANDE oportunidade!'}
-- Redes sociais ativas: {redes if redes and redes != 'Nenhuma' else 'Nenhuma detectada'}
-
-Gere 7 tipos de copy, todos personalizados para este negócio específico em Português do Brasil:
-
-1. PRIMEIRA_MENSAGEM: Abordagem inicial fria pelo WhatsApp ou Instagram DM. Tom natural, direto, não invasivo. Crie conexão e desperte curiosidade sem revelar tudo. Máx 160 palavras.
-2. PROMOCAO: Oferta irresistível com tempo limitado para o nicho deles. Tom urgente, escassez, benefício claro. Máx 120 palavras.
-3. LANDING_PAGE: Headline, Subtítulo, Corpo e CTA para uma página de vendas. Atente-se à persuasão.
-4. SISTEMA: Proposta para vender agendamento online ou CRM específico para {categoria}. Nos problemas que resolve e no ROI.
-5. ARTE_CRIATIVO: Briefing para post de Instagram (Tema e Legenda com emojis).
-6. VIDEO: Script de Reels/Stories (30s) com Gancho, Conteúdo e CTA.
-7. DESIGNER: Proposta de renovação de marca e identidade visual.
-
-IMPORTANTE: Retorne APENAS um JSON válido. Formato exato:
-{{"primeira_mensagem":"","promocao":"","landing_page":"","sistema":"","arte_criativo":"","video":"","designer":""}}"""
-
-    payload = json.dumps({
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.85, "maxOutputTokens": 4096}
-    }).encode('utf-8')
-
-    try:
-        req = urllib.request.Request(GEMINI_URL, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=90) as resp:
-            result = json.loads(resp.read().decode('utf-8'))
-        raw_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-        raw_text = re.sub(r'^```[a-z]*\n?', '', raw_text)
-        raw_text = re.sub(r'\n?```$', '', raw_text).strip()
-        copy_data = json.loads(raw_text)
-        return jsonify({"success": True, "copy": copy_data})
-    except Exception as e:
-        print(f"Erro Gemini API: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+@app.route('/api/leads')
+def api_leads():
+    return jsonify(last_leads)
 
 
 @app.route('/api/start_scrape', methods=['POST'])

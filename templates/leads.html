@@ -756,27 +756,7 @@
   </div>
 </div>
 
-<!-- ── AI Copy Modal ────────────────────────────────── -->
-<div class="modal-overlay" id="ai-modal-overlay" onclick="handleAIOverlayClick(event)">
-  <div class="modal ai-modal">
-    <div class="ai-modal-header">
-      <div>
-        <h2 id="ai-modal-title">🤖 Gerando Copy com IA...</h2>
-        <p class="modal-sub" id="ai-modal-sub">Analisando o lead e criando textos persuasivos.</p>
-      </div>
-      <button class="btn btn-ghost" onclick="closeAIModal()">Fechar</button>
-    </div>
-
-    <div id="ai-loading" class="ai-loader">
-      <div class="spinner"></div>
-      <p style="color:var(--muted-2); font-size:0.9rem;">O Gemini está escrevendo suas copies...</p>
-    </div>
-
-    <div id="ai-content" class="ai-grid" style="display: none;">
-      <!-- Boxes will be injected here -->
-    </div>
-  </div>
-</div>
+<!-- AI Modal Removed -->
 
 <!-- ── Toast ─────────────────────────────────────────── -->
 <div class="toast" id="toast"></div>
@@ -907,11 +887,7 @@
           </a>
         ` : ''}
 
-        <button class="btn btn-ai" onclick="generateAICopy(${idx})">
-          🪄 IA Copy
-        </button>
-
-        <button class="btn btn-copy" onclick="copyName('${(lead.Nome||'').replace(/'/g,"\\'")}')">📋</button>
+        <button class="btn btn-copy" onclick="copyName('${(lead.Nome||'').replace(/'/g,"\\'")}')">📋 Copiar Nome</button>
       </div>
     </div>`;
   }
@@ -954,72 +930,7 @@
     navigator.clipboard.writeText(name).then(() => showToast(`✅ "${name}" copiado!`));
   }
 
-  // ─── Modal ───────────────────────────────────────────────────────────────
-  function openAIModal(name) {
-    document.getElementById('ai-modal-overlay').classList.add('open');
-    document.getElementById('ai-modal-title').textContent = `🤖 Copy para: ${name}`;
-    document.getElementById('ai-loading').style.display = 'flex';
-    document.getElementById('ai-content').style.display = 'none';
-  }
-  function closeAIModal() { document.getElementById('ai-modal-overlay').classList.remove('open'); }
-  function handleAIOverlayClick(e) { if (e.target.id === 'ai-modal-overlay') closeAIModal(); }
-
-  async function generateAICopy(idx) {
-    const lead = window.filteredLeads[idx];
-    if (!lead) return;
-
-    openAIModal(lead.Nome);
-
-    try {
-      const resp = await fetch('/api/generate_copy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(lead)
-      });
-      const data = await resp.json();
-
-      if (data.success) {
-        renderAICopy(data.copy);
-      } else {
-        alert("Erro ao gerar copy: " + data.error);
-        closeAIModal();
-      }
-    } catch (err) {
-      alert("Erro de conexão: " + err);
-      closeAIModal();
-    }
-  }
-
-  function renderAICopy(copy) {
-    const grid = document.getElementById('ai-content');
-    grid.innerHTML = '';
-    
-    const titles = {
-      primeira_mensagem: "🎯 Primeira Mensagem",
-      promocao: "🔥 Promoção Imbatível",
-      landing_page: "🌐 Landing Page Copy",
-      sistema: "⚙️ Proposta de Sistema",
-      arte_criativo: "🎨 Ideia de Post",
-      video: "🎬 Script de Vídeo",
-      designer: "👔 Design & Branding"
-    };
-
-    Object.entries(copy).forEach(([key, text]) => {
-      const box = document.createElement('div');
-      box.className = 'ai-box';
-      box.innerHTML = `
-        <div class="ai-box-title">
-          ${titles[key] || key}
-          <button class="preset-btn" onclick="copyToClipboard('${text.replace(/'/g, "\\'")}', this)">Copiar</button>
-        </div>
-        <div class="ai-box-content">${text}</div>
-      `;
-      grid.appendChild(box);
-    });
-
-    document.getElementById('ai-loading').style.display = 'none';
-    grid.style.display = 'grid';
-  }
+  // AI functions removed
 
   function copyToClipboard(text, btn) {
     navigator.clipboard.writeText(text).then(() => {

@@ -16,8 +16,7 @@ from selenium.webdriver.remote.remote_connection import RemoteConnection
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 from urllib3.exceptions import ProtocolError
 
-# Aumenta o timeout da conexão entre o script e o driver (corrige erro de localhost / Read timed out)
-RemoteConnection.set_timeout(300)
+# Note: Timeouts are handled at the driver instance level in setup_driver
 
 
 # ─────────────────────────────────────────────
