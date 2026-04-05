@@ -328,7 +328,6 @@ def scrape_google_maps(
                 if scroll_stuck_count >= 3:
                     _log(f"[{keyword}] ℹ️ Sem novos resultados após {scroll_stuck_count} tentativas.")
                     break
-                # Tenta forçar via teclado
                 try:
                     feed_container.send_keys(Keys.END)
                     _human_pause(1.5, 0.8)
@@ -336,58 +335,62 @@ def scrape_google_maps(
                     pass
             else:
                 scroll_stuck_count = 0
-
             last_height = new_height
 
-            # SEGURANÇA: Se a rolagem estiver demorando demais e já tivermos o dobro do limite, avançamos
-            if max_results and len(items_temp) >= max_results * 2.5:
-                break
-
         _log(f"[{keyword}] 🔍 Extraindo links dos estabelecimentos...")
-
         items = feed_container.find_elements(By.CSS_SELECTOR, "a[href*='/maps/place/']")
-        unique_urls = list(dict.fromkeys(
-            item.get_attribute("href") for item in items if item.get_attribute("href")
-        ))
+        unique_urls = list(dict.fromkeys(item.get_attribute("href") for item in items if item.get_attribute("href")))
         _log(f"[{keyword}] 🗺️  {len(unique_urls)} links únicos encontrados.")
 
-        # ── Visita cada estabelecimento com sistema de auto-recuperação ────────────
+        # ── EXTRAÇÃO TURBO (POR CLIQUE NA BARRA LATERAL) ──────────────────────
+        contacts = []
         current_idx = 0
-        while current_idx < len(unique_urls):
+        leads_since_refresh = 0
+        
+        _log(f"[{keyword}] 🚀 Modo Turbo: Navegando via cliques (3x mais rápido).")
+
+        # Loop principal de extração
+        while current_idx < len(unique_urls) and (not max_results or len(contacts) < max_results):
+            if cancel_event and cancel_event.is_set():
+                break
+
+            # Gestão de Memória: Refresh total a cada 15 leads para limpar RAM no Render
+            if leads_since_refresh >= 15:
+                _log(f"[{keyword}] 🧹 Limpando memória do navegador...")
+                driver.get(driver.current_url) 
+                _human_pause(3.5, 1)
+                leads_since_refresh = 0
+                _safe_wait(driver, By.XPATH, "//h1", timeout=30)
+
             item_url = unique_urls[current_idx]
+            progress = f"[{current_idx + 1}/{len(unique_urls)}]"
+            if max_results:
+                progress += f" ({len(contacts)}/{max_results} validados)"
+            
+            _log(f"[{keyword}] 📍 Lendo {progress}...")
+
             try:
-                if cancel_event and cancel_event.is_set():
-                    _log(f"[{keyword}] ⛔ Extração abortada no item {current_idx + 1}.")
-                    break
-
-                progress = f"[{current_idx + 1}/{len(unique_urls)}]"
-                if max_results:
-                    progress += f" (Validados: {len(contacts)}/{max_results})"
-                _log(f"[{keyword}] 📍 Lendo estabelecimento {progress}...")
-
-                # Navegação robusta
-                page_loaded = False
-                for nav_attempt in range(1, 3):
-                    try:
-                        driver.get(item_url)
-                        h1_el = _safe_wait(driver, By.XPATH, "//h1", timeout=35, retries=1)
-                        if h1_el:
-                            page_loaded = True
-                            break
-                        _human_pause(1.5, 0.5)
-                    except (WebDriverException, ProtocolError, Exception) as e:
-                        if "localhost" in str(e).lower() or "timeout" in str(e).lower():
-                            raise # Re-lança para reiniciar o driver
-                        _human_pause(nav_attempt * 2, 1)
-
-                if not page_loaded:
-                    _log(f"[{keyword}]   ❌ Ignorado (timeout h1).")
-                    current_idx += 1
-                    continue
-
-                # Extração rápida simplificada
-                _human_pause(0.8, 0.4)
+                # TENTA CLICAR NO ITEM DA LISTA (MAIS RÁPIDO QUE DRIVER.GET)
+                item_found = False
+                item_elements = driver.find_elements(By.CSS_SELECTOR, f"a[href*='{item_url.split('/place/')[1].split('/')[0]}']")
                 
+                if item_elements:
+                    try:
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", item_elements[0])
+                        _human_pause(0.4, 0.2)
+                        item_elements[0].click()
+                        item_found = True
+                    except: pass
+
+                # FALLBACK: Se o clique falhar, usa driver.get()
+                if not item_found:
+                    driver.get(item_url)
+                
+                # Aguarda o painel lateral atualizar
+                _safe_wait(driver, By.XPATH, "//h1", timeout=15)
+                _human_pause(0.6, 0.3)
+
+                # Extração rápida
                 nome = "Não encontrado"
                 try: nome = driver.find_element(By.XPATH, "//h1").text.strip()
                 except: pass
@@ -427,7 +430,6 @@ def scrape_google_maps(
                         if match: num_avaliacoes = match.group(1).replace('.', '').replace(',', '')
                 except: pass
 
-                # Redes sociais simplificado
                 instagram_url = ""
                 redes_detectadas = set()
                 try:
@@ -444,29 +446,27 @@ def scrape_google_maps(
                 lat, lng = extrair_coordenadas(item_url)
                 link_whatsapp = "https://wa.me/" + re.sub(r'\D', '', telefone) if telefone and telefone != "Não encontrado" else ""
 
-                # Filtros
                 has_site = site != "Sem site"
+                # Aplica filtros
                 if not (site_filter == 'com_site' and not has_site) and not (site_filter == 'sem_site' and has_site):
                     registro = {
                         "Nome": nome, "Categoria": categoria, "Telefone": telefone, 
                         "Link_WhatsApp": link_whatsapp, "Instagram_URL": instagram_url,
                         "Site": site, "Redes_Sociais": redes_sociais, "Classificacao": classificacao,
-                        "Num_Avaliacoes": num_avaliacoes, "Endereco": endereco, "Horario": "Consultar Maps",
+                        "Num_Avaliacoes": num_avaliacoes, "Endereco": endereco, "Horario": "Ver no Google",
                         "Latitude": lat, "Longitude": lng, "URL_Maps": item_url
                     }
                     registro["Score_Lead"] = calcular_score_lead(registro)
                     contacts.append(registro)
+                    leads_since_refresh += 1
                     _log(f"[{keyword}]   ✔ '{nome}' [Score: {registro['Score_Lead']}]")
 
                 current_idx += 1
-                if max_results and len(contacts) >= max_results:
-                    _log(f"[{keyword}] 🏁 Limite atingido.")
-                    break
 
             except (WebDriverException, ProtocolError, Exception) as e:
-                err_msg = str(e).lower()
-                if "localhost" in err_msg or "disconnected" in err_msg or "timeout" in err_msg:
-                    _log(f"[{keyword}] 🔄 Conexão Localhost falhou. Reiniciando Driver para recuperar...")
+                err_str = str(e).lower()
+                if "localhost" in err_str or "disconnected" in err_str or "timeout" in err_str:
+                    _log(f"[{keyword}] 🔄 Recuperação Turbo: Reiniciando navegador...")
                     try: driver.quit()
                     except: pass
                     driver = setup_driver(headless)
