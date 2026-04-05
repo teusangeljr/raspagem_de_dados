@@ -156,10 +156,6 @@ def leads_page():
     return render_template('leads.html')
 
 
-@app.route('/api/leads')
-def api_leads():
-    return jsonify(last_leads)
-
 
 @app.route('/api/leads')
 def api_leads():
