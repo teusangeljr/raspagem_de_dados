@@ -13,7 +13,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.remote.remote_connection import RemoteConnection
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException, ProtocolError
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+from urllib3.exceptions import ProtocolError
 
 # Aumenta o timeout da conexão entre o script e o driver (corrige erro de localhost / Read timed out)
 RemoteConnection.set_timeout(300)
@@ -77,6 +78,16 @@ def setup_driver(headless=False):
 
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
+
+    # BLOQUEIO DE RECURSOS PARA MAXIMIZAR VELOCIDADE (Render Production Mode)
+    # Bloqueia Imagens (já estava), mas agora também CSS (opcional, vamos manter por segurança se a estrutura quebrar, mas vamos desativar fonts)
+    prefs = {
+        "profile.managed_default_content_settings.images": 2, # Block images
+        "profile.default_content_setting_values.notifications": 2,
+        "profile.managed_default_content_settings.stylesheets": 2, # BLOQUEIA CSS (Ganho de 40% de velocidade)
+        "profile.managed_default_content_settings.fonts": 2,       # BLOQUEIA FONTS
+    }
+    options.add_experimental_option("prefs", prefs)
 
     driver = webdriver.Chrome(options=options)
 
@@ -269,7 +280,8 @@ def scrape_google_maps(
                 break
 
             driver.execute_script("arguments[0].scrollTo(0, arguments[0].scrollHeight)", feed_container)
-            _human_pause(2.2, 1.0)
+            # Reduzido para 1.5s (estava 2.2s) para acelerar a rolagem em rede estável
+            _human_pause(1.5, 0.4) 
 
             new_height = driver.execute_script("return arguments[0].scrollHeight", feed_container)
 
@@ -524,6 +536,9 @@ def scrape_google_maps(
                     _log(f"[{keyword}] 🏁 Limite atingido: {max_results} leads validados.")
                     break
 
+            except (WebDriverException, ProtocolError) as e:
+                _log(f"[{keyword}]   ⚠️ Erro de conexão no item {idx+1} (Timeout/Localhost): {e}")
+                continue
             except Exception as e:
                 _log(f"[{keyword}]   ⚠️ Erro ao processar item {idx+1}: {e}")
                 continue

@@ -21,6 +21,8 @@ app = Flask(__name__)
 status_queue  = queue.Queue()
 download_files = {}          # keyword → filepath
 cancel_event  = threading.Event()
+scraper_lock  = threading.Lock() # Trava de segurança para impedir múltiplas instâncias de Chrome (Render Free)
+
 session_stats = {
     "total_leads":   0,
     "keywords_done": 0,
@@ -40,96 +42,105 @@ def scraper_thread(keywords, headless, max_results, min_rating, site_filter, cou
     Processa uma ou mais palavras-chave em sequência.
     Emite mensagens de progresso na fila `q`.
     """
-    global session_stats, session_history, last_leads
-
-    session_stats["start_time"]    = time.time()
-    session_stats["total_leads"]   = 0
-    session_stats["keywords_done"] = 0
-    last_leads.clear()
-
-    all_data = []
-    total_keywords = len(keywords)
-
-    def log_pusher(msg):
-        q.put(msg)
-        elapsed = time.time() - session_stats["start_time"]
-        lpm = (session_stats["total_leads"] / elapsed * 60) if elapsed > 0 else 0
-        session_stats["leads_per_min"] = round(lpm, 1)
-
-    for kw_index, keyword in enumerate(keywords, start=1):
-        if cancel_signal.is_set():
-            q.put(f"⛔ Operação cancelada antes de processar: {keyword}")
-            break
-
-        q.put(f"🔑 [{kw_index}/{total_keywords}] Iniciando busca por: \"{keyword}\"")
-
-        try:
-            search_keyword = f"{keyword} {country}".strip() if country else keyword
-
-            data = scrape_google_maps(
-                keyword=search_keyword,
-                headless=headless,
-                log_callback=log_pusher,
-                max_results=max_results,
-                min_rating=min_rating,
-                site_filter=site_filter,
-                cancel_event=cancel_signal,
-            )
-
-            leads_found = len(data)
-            session_stats["total_leads"]   += leads_found
-            session_stats["keywords_done"] += 1
-            all_data.extend(data)
-
-            elapsed = time.time() - session_stats["start_time"]
-            stats_payload = {
-                "total_leads":    session_stats["total_leads"],
-                "keywords_done":  session_stats["keywords_done"],
-                "total_keywords": total_keywords,
-                "leads_per_min":  session_stats["leads_per_min"],
-                "elapsed_sec":    int(elapsed),
-            }
-            q.put(f"STATS|{json.dumps(stats_payload)}")
-
-        except Exception as e:
-            q.put(f"❌ Erro ao processar \"{keyword}\": {e}")
-
-    if cancel_signal.is_set() and not all_data:
-        q.put("DONE|CANCELED")
+    global session_stats, session_history, last_leads, scraper_lock
+    
+    if not scraper_lock.acquire(blocking=False):
+        q.put("❌ Já existe uma prospecção em andamento. No Render Free, permitimos apenas uma por vez para evitar quedas.")
+        q.put("DONE|ERROR")
         return
 
-    # ── Salva resultado final ────────────────────────────────────────────────
     try:
-        kw_slug = "_".join(kw.replace(' ', '-').lower() for kw in keywords[:3])
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename  = f"leads_{kw_slug}_{timestamp}.xlsx"
+        session_stats["start_time"]    = time.time()
+        session_stats["total_leads"]   = 0
+        session_stats["keywords_done"] = 0
+        last_leads.clear()
 
-        result_file = remover_duplicatas_e_salvar(all_data, filename=filename, log_callback=log_pusher)
+        all_data = []
+        total_keywords = len(keywords)
 
-        if result_file:
-            download_files["last"] = result_file
+        def log_pusher(msg):
+            q.put(msg)
+            elapsed = time.time() - session_stats["start_time"]
+            lpm = (session_stats["total_leads"] / elapsed * 60) if elapsed > 0 else 0
+            session_stats["leads_per_min"] = round(lpm, 1)
 
-            # Salva leads em memória
-            last_leads.clear()
-            last_leads.extend(all_data)
+        for kw_index, keyword in enumerate(keywords, start=1):
+            if cancel_signal.is_set():
+                q.put(f"⛔ Operação cancelada antes de processar: {keyword}")
+                break
 
-            # Registra na história de sessões (incluindo os leads para rever)
-            session_history.append({
-                "id":          int(time.time()),
-                "timestamp":   datetime.now().strftime("%d/%m/%Y %H:%M"),
-                "keywords":    keywords,
-                "total_leads": session_stats["total_leads"],
-                "filename":    result_file,
-                "leads":       list(all_data) # Snapshot dos leads
-            })
+            q.put(f"🔑 [{kw_index}/{total_keywords}] Iniciando busca por: \"{keyword}\"")
 
-            q.put(f"DONE|{result_file}")
-        else:
+            try:
+                search_keyword = f"{keyword} {country}".strip() if country else keyword
+
+                data = scrape_google_maps(
+                    keyword=search_keyword,
+                    headless=headless,
+                    log_callback=log_pusher,
+                    max_results=max_results,
+                    min_rating=min_rating,
+                    site_filter=site_filter,
+                    cancel_event=cancel_signal,
+                )
+
+                leads_found = len(data)
+                session_stats["total_leads"]   += leads_found
+                session_stats["keywords_done"] += 1
+                all_data.extend(data)
+
+                elapsed = time.time() - session_stats["start_time"]
+                stats_payload = {
+                    "total_leads":    session_stats["total_leads"],
+                    "keywords_done":  session_stats["keywords_done"],
+                    "total_keywords": total_keywords,
+                    "leads_per_min":  session_stats["leads_per_min"],
+                    "elapsed_sec":    int(elapsed),
+                }
+                q.put(f"STATS|{json.dumps(stats_payload)}")
+
+            except Exception as e:
+                q.put(f"❌ Erro ao processar \"{keyword}\": {e}")
+
+        if cancel_signal.is_set() and not all_data:
+            q.put("DONE|CANCELED")
+            return
+
+        # ── Salva resultado final ────────────────────────────────────────────────
+        try:
+            kw_slug = "_".join(kw.replace(' ', '-').lower() for kw in keywords[:3])
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename  = f"leads_{kw_slug}_{timestamp}.xlsx"
+
+            result_file = remover_duplicatas_e_salvar(all_data, filename=filename, log_callback=log_pusher)
+
+            if result_file:
+                download_files["last"] = result_file
+
+                # Salva leads em memória
+                last_leads.clear()
+                last_leads.extend(all_data)
+
+                # Registra na história de sessões (incluindo os leads para rever)
+                session_history.append({
+                    "id":          int(time.time()),
+                    "timestamp":   datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    "keywords":    keywords,
+                    "total_leads": session_stats["total_leads"],
+                    "filename":    result_file,
+                    "leads":       list(all_data) # Snapshot dos leads
+                })
+
+                q.put(f"DONE|{result_file}")
+            else:
+                q.put("DONE|ERROR")
+
+        except Exception as e:
+            q.put(f"❌ Erro ao salvar arquivo: {e}")
             q.put("DONE|ERROR")
-
-    except Exception as e:
-        q.put(f"❌ Erro ao salvar arquivo: {e}")
-        q.put("DONE|ERROR")
+    finally:
+        if scraper_lock.locked():
+            scraper_lock.release()
 
 
 # ─────────────────────────────────────────────
@@ -207,7 +218,11 @@ IMPORTANTE: Retorne APENAS um JSON válido. Formato exato:
 
 @app.route('/api/start_scrape', methods=['POST'])
 def start_scrape():
-    global status_queue, cancel_event
+    global status_queue, cancel_event, scraper_lock
+    
+    if scraper_lock.locked():
+        return jsonify({"error": "Já existe uma prospecção rodando. Aguarde terminar para iniciar outra (limite do servidor free)."}), 429
+
     data = request.json or {}
     raw_kw = data.get('keyword', '')
     if isinstance(raw_kw, list):
